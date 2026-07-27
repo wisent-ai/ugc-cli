@@ -16,7 +16,7 @@ Private Rust CLI for provider-agnostic UGC campaign operations. It keeps the can
 - durable outbox, retries, dead letters, polling, and signed webhooks
 - immutable audit log and diagnostics
 
-The CLI never stores provider secrets in SQLite. Connections store environment-variable names; credentials remain in the process environment.
+The CLI never stores plaintext provider secrets in SQLite. Connections store secret-source references. A source can be `env:NAME`, `file:/owner-only/path`, or `file:/owner-only/path#KEY`; the unprefixed legacy form still means an environment-variable name.
 
 ## Build and install
 
@@ -39,6 +39,117 @@ export UGC_ASSET_DIR="$PWD/.ugc/assets"
 
 CLI-level `--db` and `--asset-dir` override environment defaults.
 
+## Wisent tools
+
+### Skarbiec: secret plane
+
+Use Skarbiec for provider tokens, the Weles Supabase service credential, Brama request-signing credentials, webhook secrets, and recovery/audit policy. `ugc-cli` reads owner-only files produced by `skarbiec expand`; it never asks Skarbiec to print a value.
+
+Create a template containing references only:
+
+```bash
+mkdir -p .ugc
+cat > .ugc/wisent-tools.env.template <<'EOF'
+WELES_SERVICE_ROLE_KEY=skarbiec://ugc-weles/service_role_key
+BRAMA_REQUEST_SIGNING_SECRET=skarbiec://ugc-brama/request_signing_secret
+UGC_HTTP_TOKEN=skarbiec://ugc-provider/api_token
+UGC_HTTP_WEBHOOK_SECRET=skarbiec://ugc-provider/webhook_secret
+EOF
+
+skarbiec expand .ugc/wisent-tools.env.template \
+  --out .ugc/wisent-tools.env
+```
+
+`skarbiec expand` writes the output with owner-only permissions. Check availability without printing a value:
+
+```bash
+ugc-cli skarbiec check \
+  'file:.ugc/wisent-tools.env#WELES_SERVICE_ROLE_KEY'
+```
+
+Generate one reference line for a template:
+
+```bash
+ugc-cli skarbiec reference \
+  --item ugc-provider \
+  --field api_token \
+  --name UGC_HTTP_TOKEN
+```
+
+Use Skarbiec when a secret must be shared, rotated, revoked, recovered, or audited. Do not commit the expanded env file; commit only its reference template.
+
+### Weles: controlled browser execution
+
+Use Weles only for an action backed by an existing trajectory and an authorized social account—for example account health, login recovery, marketplace/dashboard steps for which a reviewed trajectory exists, or Instagram publishing. Native provider APIs remain the first choice.
+
+`ugc-cli` enqueues directly into Weles's canonical `account_action_logs` queue:
+
+```bash
+export WELES_SUPABASE_URL='https://PROJECT.supabase.co'
+export WELES_TOKEN_SOURCE='file:.ugc/wisent-tools.env#WELES_SERVICE_ROLE_KEY'
+
+ugc-cli weles enqueue \
+  --account-id SOCIAL_ACCOUNT_UUID \
+  --platform instagram \
+  --action instagram_post \
+  --params '{"svc_text":"Approved campaign caption"}'
+```
+
+The command returns the Weles queue row. Follow it without exposing credentials:
+
+```bash
+ugc-cli weles status WELES_JOB_ID
+```
+
+How it fits the UGC flow:
+
+1. Echo/`ugc-cli` owns the campaign, approved asset, rights, and review decision.
+2. The operator chooses an existing Weles trajectory and an authorized account.
+3. `ugc-cli weles enqueue` records a queued browser action.
+4. The Weles worker claims it, uses the account's isolated browser session, and writes terminal result/evidence to the same row.
+5. The operator records the resulting publication URL in the canonical UGC workflow.
+
+The current Weles `instagram_post` trajectory generates its own image. It does not publish an existing `ugc-cli` video asset. A dedicated, reviewed trajectory is required before claiming full UGC asset publication support. Never invent an action name: Weles silently skips actions absent from `src/worker/dispatch.ts`.
+
+### Brama: model gateway
+
+Use Brama for evidence-bounded assistance: brief critique, operational readiness, creator-fit review, rights-risk review, and submission-metadata triage. Brama selects a provider/model, handles ranked retries, and keeps provider credentials behind its Skarbiec-backed gateway.
+
+Configure the signed client:
+
+```bash
+export BRAMA_URL='http://127.0.0.1:8080'
+export UGC_BRAMA_AGENT_ID='ugc-operations'
+export UGC_BRAMA_SIGNING_SECRET_SOURCE='file:.ugc/wisent-tools.env#BRAMA_REQUEST_SIGNING_SECRET'
+```
+
+Check the gateway:
+
+```bash
+ugc-cli brama health
+```
+
+Analyze any canonical record stored by `ugc-cli`:
+
+```bash
+ugc-cli brama analyze \
+  --kind brief \
+  --id BRIEF_ID \
+  --model task:ugc-review \
+  --instruction 'Find unsupported claims and missing required shots.'
+```
+
+Supported review contexts include `campaign`, `brief`, `creator`, `assignment`, `submission`, `asset`, and `usage_rights`. The complete canonical JSON is sent through Brama's OpenAI-compatible `/v1/chat/completions` endpoint with Brama's required HMAC headers. Model output is advisory: it cannot approve a submission, grant rights, initiate payment, or enqueue Weles by itself.
+
+Recommended division of responsibility:
+
+| Tool | Owns | Good UGC uses | Must not decide |
+|---|---|---|---|
+| Skarbiec | secrets, grants, encryption, audit | provider tokens, Weles credential, Brama signing key, webhook secrets | creative or campaign state |
+| Weles | authorized browser trajectories and run evidence | reviewed dashboard actions, social-account health, supported publishing trajectories | rights, payment, final approval |
+| Brama | authenticated model routing | brief critique, creator-fit and metadata-based risk review | legal rights, payment, autonomous publication |
+| `ugc-cli` | canonical UGC state and gates | campaigns, briefs, assignments, assets, QC, review, rights, payments | provider credential storage |
+
 ## Provider modes
 
 ### Manual
@@ -53,16 +164,15 @@ ugc-cli connection add --name billo-manual --provider manual
 
 A native adapter for a provider gateway implementing the contract below.
 
-```bash
-export MY_UGC_TOKEN='secret'
-export MY_UGC_WEBHOOK_SECRET='secret'
+Create an owner-only credential file with Skarbiec as shown above, then reference the values:
 
+```bash
 ugc-cli connection add \
   --name primary-provider \
   --provider http \
   --base-url https://ugc-gateway.example.com \
-  --token-env MY_UGC_TOKEN \
-  --webhook-secret-env MY_UGC_WEBHOOK_SECRET
+  --token-source 'file:.ugc/wisent-tools.env#UGC_HTTP_TOKEN' \
+  --webhook-secret-source 'file:.ugc/wisent-tools.env#UGC_HTTP_WEBHOOK_SECRET'
 ```
 
 The adapter uses bearer authentication and these endpoints:
@@ -334,7 +444,8 @@ SQLite uses WAL mode and contains canonical records, outbox operations, webhook 
 
 ## Security boundaries
 
-- provider secrets are read from named environment variables
+- provider secrets are resolved from environment variables or regular, non-symlink, owner-only files
+- Skarbiec-expanded files are read only at the provider, Weles, or Brama call boundary
 - webhook signatures are verified against the raw request body
 - duplicate provider events are rejected by a unique event key
 - provider asset URLs should be imported immediately; local content-addressed assets are canonical
@@ -343,4 +454,4 @@ SQLite uses WAL mode and contains canonical records, outbox operations, webhook 
 
 ## Provider-specific integrations
 
-Billo and Insense do not have public developer contracts implemented here. Add a native adapter only after obtaining official API documentation, credentials, webhook signing rules, and permission to automate the account. Until then, use the manual adapter rather than browser scraping a logged-in dashboard.
+Billo and Insense do not have public developer contracts implemented here. Add a native adapter only after obtaining official API documentation, credentials, webhook signing rules, and permission to automate the account. Until then, use the manual adapter. Weles may execute a specifically reviewed and supported trajectory on an authorized account, but it is not a generic browser-scraping fallback and does not replace a provider contract.

@@ -1,7 +1,9 @@
 mod db;
+mod ecosystem;
 mod media;
 mod model;
 mod provider;
+mod secret;
 mod server;
 mod service;
 mod sync;
@@ -59,6 +61,9 @@ enum Command {
     Message(MessageArgs),
     Sync(SyncArgs),
     Webhook(WebhookArgs),
+    Weles(WelesArgs),
+    Skarbiec(SkarbiecArgs),
+    Brama(BramaArgs),
     Audit(AuditArgs),
     Diagnostics,
 }
@@ -78,10 +83,10 @@ enum ConnectionCommand {
         provider: String,
         #[arg(long)]
         base_url: Option<String>,
-        #[arg(long)]
-        token_env: Option<String>,
-        #[arg(long)]
-        webhook_secret_env: Option<String>,
+        #[arg(long = "token-source", visible_alias = "token-env")]
+        token_source: Option<String>,
+        #[arg(long = "webhook-secret-source", visible_alias = "webhook-secret-env")]
+        webhook_secret_source: Option<String>,
         #[arg(long)]
         external_account_id: Option<String>,
     },
@@ -566,6 +571,88 @@ enum WebhookCommand {
 }
 
 #[derive(Args)]
+struct WelesArgs {
+    #[command(subcommand)]
+    command: WelesCommand,
+}
+
+#[derive(Subcommand)]
+enum WelesCommand {
+    Enqueue {
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long)]
+        token_source: Option<String>,
+        #[arg(long)]
+        account_id: String,
+        #[arg(long)]
+        platform: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long, default_value = "{}")]
+        params: String,
+    },
+    Status {
+        id: String,
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long)]
+        token_source: Option<String>,
+    },
+}
+
+#[derive(Args)]
+struct SkarbiecArgs {
+    #[command(subcommand)]
+    command: SkarbiecCommand,
+}
+
+#[derive(Subcommand)]
+enum SkarbiecCommand {
+    Check {
+        source: String,
+    },
+    Reference {
+        #[arg(long)]
+        item: String,
+        #[arg(long)]
+        field: String,
+        #[arg(long)]
+        name: String,
+    },
+}
+
+#[derive(Args)]
+struct BramaArgs {
+    #[command(subcommand)]
+    command: BramaCommand,
+}
+
+#[derive(Subcommand)]
+enum BramaCommand {
+    Health {
+        #[arg(long)]
+        base_url: Option<String>,
+    },
+    Analyze {
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long)]
+        agent_id: Option<String>,
+        #[arg(long)]
+        signing_secret_source: Option<String>,
+        #[arg(long, default_value = "task:ugc-review")]
+        model: String,
+        #[arg(long)]
+        instruction: Option<String>,
+    },
+}
+
+#[derive(Args)]
 struct AuditArgs {
     #[arg(long)]
     kind: Option<String>,
@@ -596,15 +683,15 @@ fn run() -> Result<()> {
                 name,
                 provider,
                 base_url,
-                token_env,
-                webhook_secret_env,
+                token_source,
+                webhook_secret_source,
                 external_account_id,
             } => output(&service.add_connection(
                 name,
                 provider,
                 base_url,
-                token_env,
-                webhook_secret_env,
+                token_source,
+                webhook_secret_source,
                 external_account_id,
             )?)?,
             ConnectionCommand::List => {
@@ -971,6 +1058,80 @@ fn run() -> Result<()> {
                 output(&store.webhook_log(connection.as_deref())?)?
             }
         },
+        Command::Weles(args) => match args.command {
+            WelesCommand::Enqueue {
+                base_url,
+                token_source,
+                account_id,
+                platform,
+                action,
+                params,
+            } => {
+                let base_url =
+                    first_option_or_env(base_url, &["WELES_SUPABASE_URL", "SUPABASE_URL"])?;
+                let token_source = option_or_env(token_source, "WELES_TOKEN_SOURCE")?;
+                output(&ecosystem::weles_enqueue(
+                    &base_url,
+                    &token_source,
+                    &account_id,
+                    &platform,
+                    &action,
+                    parse_json(&params)?,
+                )?)?;
+            }
+            WelesCommand::Status {
+                id,
+                base_url,
+                token_source,
+            } => {
+                let base_url =
+                    first_option_or_env(base_url, &["WELES_SUPABASE_URL", "SUPABASE_URL"])?;
+                let token_source = option_or_env(token_source, "WELES_TOKEN_SOURCE")?;
+                output(&ecosystem::weles_status(&base_url, &token_source, &id)?)?;
+            }
+        },
+        Command::Skarbiec(args) => match args.command {
+            SkarbiecCommand::Check { source } => {
+                secret::check(&source)?;
+                output(&json!({"available": true, "source": source}))?;
+            }
+            SkarbiecCommand::Reference { item, field, name } => {
+                output(&json!({
+                    "template_line": format!("{name}=skarbiec://{item}/{field}"),
+                    "connection_source": format!("file:.ugc/provider.env#{name}")
+                }))?;
+            }
+        },
+        Command::Brama(args) => match args.command {
+            BramaCommand::Health { base_url } => {
+                let base_url = option_or_env(base_url, "BRAMA_URL")?;
+                output(&ecosystem::brama_health(&base_url)?)?;
+            }
+            BramaCommand::Analyze {
+                kind,
+                id,
+                base_url,
+                agent_id,
+                signing_secret_source,
+                model,
+                instruction,
+            } => {
+                let base_url = option_or_env(base_url, "BRAMA_URL")?;
+                let agent_id = option_or_env(agent_id, "UGC_BRAMA_AGENT_ID")?;
+                let signing_secret_source =
+                    option_or_env(signing_secret_source, "UGC_BRAMA_SIGNING_SECRET_SOURCE")?;
+                let subject: Value = store.get(&kind, &id)?;
+                output(&ecosystem::brama_analyze(
+                    &base_url,
+                    &agent_id,
+                    &signing_secret_source,
+                    &model,
+                    &kind,
+                    &subject,
+                    instruction.as_deref(),
+                )?)?;
+            }
+        },
         Command::Audit(args) => {
             output(&store.audit_log(args.kind.as_deref(), args.id.as_deref())?)?
         }
@@ -1013,6 +1174,18 @@ fn default_asset_dir() -> PathBuf {
 
 fn default_batch() -> usize {
     "batch".len() * "batch".len()
+}
+
+fn option_or_env(option: Option<String>, name: &str) -> Result<String> {
+    option
+        .or_else(|| env::var(name).ok())
+        .with_context(|| format!("provide the option or set {name}"))
+}
+
+fn first_option_or_env(option: Option<String>, names: &[&str]) -> Result<String> {
+    option
+        .or_else(|| names.iter().find_map(|name| env::var(name).ok()))
+        .with_context(|| format!("provide --base-url or set {}", names.join(" or ")))
 }
 
 fn read_input(path: Option<&Path>) -> Result<Vec<u8>> {

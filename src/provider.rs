@@ -1,5 +1,3 @@
-use std::env;
-
 use anyhow::{Context, Result, bail};
 use hmac::{Hmac, Mac};
 use reqwest::blocking::{Client, Response};
@@ -7,7 +5,10 @@ use serde_json::{Value, json};
 use sha2::Sha256;
 use uuid::Uuid;
 
-use crate::model::{Connection, ProviderEvent};
+use crate::{
+    model::{Connection, ProviderEvent},
+    secret,
+};
 
 pub trait ProviderAdapter {
     fn health(&self) -> Result<Value>;
@@ -170,8 +171,8 @@ impl ProviderAdapter for HttpAdapter {
     }
 }
 
-fn read_secret(name: &str) -> Result<String> {
-    env::var(name).with_context(|| format!("environment variable {name} is not set"))
+fn read_secret(source: &str) -> Result<String> {
+    secret::read(source)
 }
 
 fn url_encode(input: &str) -> String {
