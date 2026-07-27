@@ -139,10 +139,35 @@ impl<'a> StandaloneService<'a> {
         }) {
             bail!("a creator with this email already exists; an operator must issue portal access");
         }
+        let mut identities = Vec::with_capacity(seed.identities.len());
+        let mut identity_keys = BTreeSet::new();
+        for mut identity in seed.identities {
+            identity.platform = identity.platform.trim().to_ascii_lowercase();
+            identity.external_creator_id = identity.external_creator_id.trim().to_string();
+            if identity.platform.is_empty() || identity.external_creator_id.is_empty() {
+                bail!("self-reported identity platform and external creator ID are required");
+            }
+            identity.profile_url = identity
+                .profile_url
+                .map(|url| url.trim().to_string())
+                .filter(|url| !url.is_empty());
+            let key = format!("{}:{}", identity.platform, identity.external_creator_id);
+            if !identity_keys.insert(key.clone()) {
+                bail!("self-registration contains a duplicate identity: {key}");
+            }
+            if self
+                .store
+                .find_external::<CreatorIdentity>("creator_identity", &key)?
+                .is_some()
+            {
+                bail!("creator identity is already registered: {key}");
+            }
+            identities.push(identity);
+        }
         let metadata = json!({
             "verification_status": "unverified",
             "self_reported": seed.metadata,
-            "self_reported_identities": seed.identities,
+            "self_reported_identities": identities.clone(),
         });
         let service = self.core();
         let creator = service.add_creator(
@@ -153,10 +178,26 @@ impl<'a> StandaloneService<'a> {
             seed.niches,
             metadata,
         )?;
+        let mut created_identities = Vec::with_capacity(identities.len());
+        for identity in identities {
+            let metadata = json!({
+                "verification_status": "unverified",
+                "self_reported": identity.metadata,
+            });
+            created_identities.push(service.add_creator_identity(
+                creator.id.clone(),
+                None,
+                identity.platform,
+                identity.external_creator_id,
+                identity.profile_url,
+                metadata,
+            )?);
+        }
         let portal = self.create_portal_access(&creator.id, Some(int("30")))?;
         self.audit("creator", &creator.id, "self_registered", json!({}))?;
         Ok(json!({
             "creator": creator,
+            "identities": created_identities,
             "portal": portal,
             "identity_status": "pending_operator_verification",
         }))

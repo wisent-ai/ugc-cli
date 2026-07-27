@@ -329,6 +329,43 @@ impl<'a> UgcService<'a> {
             &creator,
             &creator.created_at,
         )?;
+        let identities: Vec<CreatorIdentity> =
+            self.store.list("creator_identity", Some(id), None)?;
+        for mut identity in identities {
+            if identity
+                .metadata
+                .get("verification_status")
+                .and_then(Value::as_str)
+                != Some("unverified")
+            {
+                continue;
+            }
+            let mut metadata = match std::mem::take(&mut identity.metadata) {
+                Value::Object(metadata) => metadata,
+                self_reported => {
+                    let mut metadata = serde_json::Map::new();
+                    metadata.insert("self_reported".into(), self_reported);
+                    metadata
+                }
+            };
+            metadata.insert(
+                "verification_status".into(),
+                Value::String("verified".into()),
+            );
+            metadata.insert("verified_at".into(), Value::String(Store::now()));
+            identity.metadata = Value::Object(metadata);
+            let external = format!("{}:{}", identity.platform, identity.external_creator_id);
+            self.store.put(
+                "creator_identity",
+                &identity.id,
+                Some(&identity.creator_id),
+                identity.connection_id.as_deref(),
+                "active",
+                Some(&external),
+                &identity,
+                &Store::now(),
+            )?;
+        }
         self.audit("creator", id, "verified", json!({}))?;
         Ok(creator)
     }
@@ -346,9 +383,26 @@ impl<'a> UgcService<'a> {
         required("external_creator_id", &external_creator_id)?;
         let platform = platform.trim().to_ascii_lowercase();
         let external_creator_id = external_creator_id.trim().to_string();
+        let profile_url = profile_url
+            .map(|url| url.trim().to_string())
+            .filter(|url| !url.is_empty());
         let _: Creator = self.store.get("creator", &creator_id)?;
         if let Some(connection) = &connection_id {
             let _: Connection = self.store.get("connection", connection)?;
+        }
+        let external = format!("{platform}:{external_creator_id}");
+        if let Some(existing) = self
+            .store
+            .find_external::<CreatorIdentity>("creator_identity", &external)?
+        {
+            let same_identity = existing.creator_id == creator_id
+                && existing.connection_id == connection_id
+                && existing.profile_url == profile_url
+                && existing.metadata == metadata;
+            if same_identity {
+                return Ok(existing);
+            }
+            bail!("creator identity is already registered: {external}");
         }
         let identity = CreatorIdentity {
             id: Store::id(),
@@ -360,7 +414,6 @@ impl<'a> UgcService<'a> {
             metadata,
             last_synced_at: None,
         };
-        let external = format!("{platform}:{external_creator_id}");
         self.store.put(
             "creator_identity",
             &identity.id,

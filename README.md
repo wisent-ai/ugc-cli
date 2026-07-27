@@ -133,7 +133,7 @@ To let new creators enroll themselves locally:
 ugc-cli standalone serve --allow-registration
 ```
 
-The enrollment form is then available at `http://127.0.0.1:8765/register`. Registration requires a unique email, creates the canonical creator profile and self-reported identities, and returns a creator portal token once. Self-registered creators remain excluded from discovery until an operator verifies the profile:
+The enrollment form is then available at `http://127.0.0.1:8765/register`. Registration requires a unique email, prevalidates globally unique platform identities, creates the canonical creator profile and self-reported identity records, and returns a creator portal token once. Self-registered creators and identities remain unverified and excluded from discovery until an operator verifies the profile; verification promotes the associated self-reported identities:
 
 ```bash
 ugc-cli creator verify CREATOR_ID \
