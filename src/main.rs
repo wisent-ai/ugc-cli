@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -1658,6 +1658,7 @@ fn run() -> Result<()> {
             }
             StandaloneCommand::Export { file } => {
                 let records = store.all_records()?;
+                reject_symbolic_link_output(&file)?;
                 fs::write(&file, serde_json::to_vec_pretty(&records)?)
                     .with_context(|| format!("cannot write {}", file.display()))?;
                 protect_private_output(&file)?;
@@ -1735,6 +1736,17 @@ fn read_input(path: Option<&Path>) -> Result<Vec<u8>> {
             io::stdin().read_to_end(&mut body)?;
             Ok(body)
         }
+    }
+}
+
+fn reject_symbolic_link_output(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!("standalone export path must not be a symbolic link")
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("cannot inspect {}", path.display())),
     }
 }
 

@@ -39,7 +39,7 @@ export UGC_ASSET_DIR="$PWD/.ugc/assets"
 
 CLI-level `--db` and `--asset-dir` override environment defaults.
 
-On Unix, the database, its SQLite sidecars, exported backups, and stored assets are forced to owner-only permissions. Symbolic-link database and asset-directory paths are rejected.
+On Unix, the database, its SQLite sidecars, exported backups, and stored assets are forced to owner-only permissions. Symbolic-link paths are rejected for the database, asset directory, and backup output.
 
 ## Standalone mode: complete local workflow
 
