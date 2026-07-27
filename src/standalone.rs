@@ -373,6 +373,16 @@ impl<'a> StandaloneService<'a> {
     ) -> Result<Value> {
         let campaign: Campaign = self.store.get("campaign", campaign_id)?;
         let brief: Brief = self.store.get("brief", brief_id)?;
+        if !matches!(campaign.status.as_str(), "draft" | "sourcing" | "active") {
+            bail!("campaign cannot launch outreach in its current state");
+        }
+        if let Some(deadline) = campaign.deadline.as_deref() {
+            let deadline =
+                DateTime::parse_from_rfc3339(deadline).context("invalid campaign deadline")?;
+            if deadline <= Utc::now() {
+                bail!("campaign deadline has passed");
+            }
+        }
         if brief.campaign_id != campaign.id || brief.status != "approved" {
             bail!("launch requires an approved brief belonging to the campaign");
         }
@@ -380,14 +390,28 @@ impl<'a> StandaloneService<'a> {
         let matches = self.discover(query)?;
         let existing: Vec<Conversation> =
             self.store.list("conversation", Some(campaign_id), None)?;
+        let assignments: Vec<Assignment> =
+            self.store.list("assignment", Some(campaign_id), None)?;
         let mut launched = Vec::new();
         let mut skipped = Vec::new();
         let mut reserved = zero();
+        for assignment in assignments
+            .iter()
+            .filter(|assignment| !matches!(assignment.status.as_str(), "cancelled" | "failed"))
+        {
+            if let Some(amount) = assignment.compensation_minor {
+                let Some(total) = reserved.checked_add(amount) else {
+                    bail!("campaign assignment reservation overflow");
+                };
+                reserved = total;
+            }
+        }
         for conversation in existing.iter().filter(|conversation| {
-            !matches!(
-                conversation.status.as_str(),
-                "declined" | "opted_out" | "closed"
-            )
+            conversation.assignment_id.is_none()
+                && !matches!(
+                    conversation.status.as_str(),
+                    "declined" | "opted_out" | "closed"
+                )
         }) {
             if let Some(amount) = conversation.offered_compensation_minor {
                 let Some(total) = reserved.checked_add(amount) else {

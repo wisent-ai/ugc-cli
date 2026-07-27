@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
@@ -89,6 +89,13 @@ impl<'a> UgcService<'a> {
         required("currency", &currency)?;
         if budget_minor.is_some_and(|budget| budget < i64::default()) {
             bail!("campaign budget cannot be negative");
+        }
+        if let Some(deadline) = deadline.as_deref() {
+            let deadline =
+                DateTime::parse_from_rfc3339(deadline).context("invalid campaign deadline")?;
+            if deadline <= Utc::now() {
+                bail!("campaign deadline must be in the future");
+            }
         }
         let currency = currency.trim().to_ascii_uppercase();
         let now = Store::now();
@@ -501,6 +508,31 @@ impl<'a> UgcService<'a> {
                     return Ok(existing);
                 }
                 bail!("external assignment ID was already used: {external}");
+            }
+        }
+        let campaign_deadline = campaign
+            .deadline
+            .as_deref()
+            .map(DateTime::parse_from_rfc3339)
+            .transpose()
+            .context("invalid campaign deadline")?;
+        if campaign_deadline
+            .as_ref()
+            .is_some_and(|deadline| *deadline <= Utc::now())
+        {
+            bail!("campaign deadline has passed");
+        }
+        if let Some(deadline) = deadline.as_deref() {
+            let assignment_deadline =
+                DateTime::parse_from_rfc3339(deadline).context("invalid assignment deadline")?;
+            if assignment_deadline <= Utc::now() {
+                bail!("assignment deadline must be in the future");
+            }
+            if campaign_deadline
+                .as_ref()
+                .is_some_and(|campaign_deadline| assignment_deadline > *campaign_deadline)
+            {
+                bail!("assignment deadline cannot exceed campaign deadline");
             }
         }
         if let (Some(budget), Some(compensation)) = (campaign.budget_minor, compensation_minor) {

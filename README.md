@@ -98,6 +98,8 @@ Launch performs these operations without an external integration:
 4. creates an expiring creator portal token,
 5. returns every conversation and portal token as JSON.
 
+Launch is rejected for terminal campaigns or expired deadlines. Budget reservation includes existing non-terminal assignments plus outreach conversations that have not yet produced an assignment, without double-counting accepted offers.
+
 Inspect or continue a thread:
 
 ```bash
