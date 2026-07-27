@@ -12,8 +12,8 @@ use crate::{
     model::{
         Asset, Assignment, AttributionEvent, Brief, Campaign, Conversation, ConversationMessage,
         Creator, CreatorIdentity, CreatorMatch, DiscoveryQuery, LedgerBalance, LedgerTransfer,
-        MetricSnapshot, Payment, PortalAccess, StandalonePublication, Submission, UsageRights,
-        WorkflowReport,
+        MetricSnapshot, Payment, PortalAccess, Shipment, StandalonePublication, Submission,
+        UsageRights, WorkflowReport,
     },
     service::UgcService,
 };
@@ -127,6 +127,8 @@ impl<'a> StandaloneService<'a> {
         let email = seed
             .email
             .as_deref()
+            .map(str::trim)
+            .filter(|email| !email.is_empty())
             .context("self-registration requires an email")?;
         let creators: Vec<Creator> = self.store.list("creator", None, None)?;
         if creators.iter().any(|creator| {
@@ -137,6 +139,11 @@ impl<'a> StandaloneService<'a> {
         }) {
             bail!("a creator with this email already exists; an operator must issue portal access");
         }
+        let metadata = json!({
+            "verification_status": "unverified",
+            "self_reported": seed.metadata,
+            "self_reported_identities": seed.identities,
+        });
         let service = self.core();
         let creator = service.add_creator(
             seed.display_name,
@@ -144,24 +151,24 @@ impl<'a> StandaloneService<'a> {
             seed.languages,
             seed.markets,
             seed.niches,
-            seed.metadata,
+            metadata,
         )?;
-        for identity in seed.identities {
-            service.add_creator_identity(
-                creator.id.clone(),
-                None,
-                identity.platform,
-                identity.external_creator_id,
-                identity.profile_url,
-                identity.metadata,
-            )?;
-        }
         let portal = self.create_portal_access(&creator.id, Some(int("30")))?;
         self.audit("creator", &creator.id, "self_registered", json!({}))?;
-        Ok(json!({"creator": creator, "portal": portal}))
+        Ok(json!({
+            "creator": creator,
+            "portal": portal,
+            "identity_status": "pending_operator_verification",
+        }))
     }
 
     pub fn discover(&self, mut query: DiscoveryQuery) -> Result<Vec<CreatorMatch>> {
+        if query.min_followers.is_some_and(|minimum| minimum < zero()) {
+            bail!("minimum followers cannot be negative");
+        }
+        if query.max_rate_minor.is_some_and(|maximum| maximum < zero()) {
+            bail!("maximum rate cannot be negative");
+        }
         if let Some(campaign_id) = &query.campaign_id {
             let campaign: Campaign = self.store.get("campaign", campaign_id)?;
             if query.markets.is_empty() {
@@ -177,6 +184,14 @@ impl<'a> StandaloneService<'a> {
         let creators: Vec<Creator> = self.store.list("creator", None, Some("active"))?;
         let mut matches = Vec::new();
         for creator in creators {
+            if creator
+                .metadata
+                .get("verification_status")
+                .and_then(Value::as_str)
+                == Some("unverified")
+            {
+                continue;
+            }
             let identities: Vec<CreatorIdentity> =
                 self.store
                     .list("creator_identity", Some(&creator.id), None)?;
@@ -313,6 +328,7 @@ impl<'a> StandaloneService<'a> {
         brief_id: &str,
         mut query: DiscoveryQuery,
         offer_minor: Option<i64>,
+        shipping_required: bool,
     ) -> Result<Value> {
         let campaign: Campaign = self.store.get("campaign", campaign_id)?;
         let brief: Brief = self.store.get("brief", brief_id)?;
@@ -325,6 +341,20 @@ impl<'a> StandaloneService<'a> {
             self.store.list("conversation", Some(campaign_id), None)?;
         let mut launched = Vec::new();
         let mut skipped = Vec::new();
+        let mut reserved = zero();
+        for conversation in existing.iter().filter(|conversation| {
+            !matches!(
+                conversation.status.as_str(),
+                "declined" | "opted_out" | "closed"
+            )
+        }) {
+            if let Some(amount) = conversation.offered_compensation_minor {
+                let Some(total) = reserved.checked_add(amount) else {
+                    bail!("campaign outreach reservation overflow");
+                };
+                reserved = total;
+            }
+        }
         for candidate in matches {
             if existing
                 .iter()
@@ -333,18 +363,36 @@ impl<'a> StandaloneService<'a> {
                 skipped.push(json!({"creator_id": candidate.creator.id, "reason": "conversation already exists"}));
                 continue;
             }
-            let compensation = offer_minor
-                .or_else(|| metadata_i64(&candidate.creator.metadata, "base_rate_minor"));
-            if compensation.is_none() {
+            let Some(compensation) = offer_minor
+                .or_else(|| metadata_i64(&candidate.creator.metadata, "base_rate_minor"))
+            else {
                 skipped.push(json!({"creator_id": candidate.creator.id, "reason": "no offer or base_rate_minor"}));
                 continue;
+            };
+            if compensation <= zero() {
+                skipped.push(
+                    json!({"creator_id": candidate.creator.id, "reason": "offer must be positive"}),
+                );
+                continue;
             }
+            let Some(proposed_reservation) = reserved.checked_add(compensation) else {
+                bail!("campaign outreach reservation overflow");
+            };
+            if campaign
+                .budget_minor
+                .is_some_and(|budget| proposed_reservation > budget)
+            {
+                skipped.push(json!({"creator_id": candidate.creator.id, "reason": "campaign budget exhausted"}));
+                continue;
+            }
+            reserved = proposed_reservation;
             let conversation = self.create_conversation(
                 candidate.creator.id.clone(),
                 Some(campaign.id.clone()),
                 Some(brief.id.clone()),
-                compensation,
+                Some(compensation),
                 campaign.currency.clone(),
+                shipping_required,
                 None,
             )?;
             let portal = self.create_portal_access(&candidate.creator.id, Some(int("30")))?;
@@ -366,12 +414,14 @@ impl<'a> StandaloneService<'a> {
         brief_id: Option<String>,
         offered_compensation_minor: Option<i64>,
         currency: String,
+        shipping_required: bool,
         initial_message: Option<String>,
     ) -> Result<Value> {
         let creator: Creator = self.store.get("creator", &creator_id)?;
-        if let Some(campaign) = &campaign_id {
-            let _: Campaign = self.store.get("campaign", campaign)?;
-        }
+        let campaign = campaign_id
+            .as_deref()
+            .map(|campaign| self.store.get::<Campaign>("campaign", campaign))
+            .transpose()?;
         if let Some(brief) = &brief_id {
             let brief_record: Brief = self.store.get("brief", brief)?;
             if campaign_id.as_deref() != Some(&brief_record.campaign_id) {
@@ -380,6 +430,15 @@ impl<'a> StandaloneService<'a> {
             if brief_record.status != "approved" {
                 bail!("conversation brief must be approved");
             }
+        }
+        if currency.trim().is_empty() {
+            bail!("conversation currency is required");
+        }
+        if campaign
+            .as_ref()
+            .is_some_and(|campaign| !currency.eq_ignore_ascii_case(&campaign.currency))
+        {
+            bail!("conversation currency must match campaign currency");
         }
         if offered_compensation_minor.is_some_and(|amount| amount <= zero()) {
             bail!("offered compensation must be positive");
@@ -395,6 +454,7 @@ impl<'a> StandaloneService<'a> {
             stage: "outreach".into(),
             offered_compensation_minor,
             currency,
+            shipping_required,
             next_action_at: None,
             last_inbound_at: None,
             last_outbound_at: None,
@@ -472,6 +532,13 @@ impl<'a> StandaloneService<'a> {
             _ => {}
         }
         self.save_conversation(&conversation)?;
+        let assignment = if intent == "accepted" {
+            let assignment = self.accept_conversation(conversation_id)?;
+            conversation = self.store.get("conversation", conversation_id)?;
+            Some(assignment)
+        } else {
+            None
+        };
         let automated_reply = self.automatic_reply(&conversation, &intent)?;
         self.audit(
             "conversation",
@@ -480,7 +547,7 @@ impl<'a> StandaloneService<'a> {
             json!({"intent": intent, "automated_reply": automated_reply.is_some()}),
         )?;
         Ok(
-            json!({"conversation": conversation, "inbound": inbound, "automated_reply": automated_reply}),
+            json!({"conversation": conversation, "inbound": inbound, "automated_reply": automated_reply, "assignment": assignment}),
         )
     }
 
@@ -523,11 +590,7 @@ impl<'a> StandaloneService<'a> {
             .list("conversation_message", Some(conversation_id), None)
     }
 
-    pub fn accept_conversation(
-        &self,
-        conversation_id: &str,
-        shipping_required: bool,
-    ) -> Result<Assignment> {
+    pub fn accept_conversation(&self, conversation_id: &str) -> Result<Assignment> {
         let mut conversation: Conversation = self.store.get("conversation", conversation_id)?;
         if let Some(assignment_id) = &conversation.assignment_id {
             return self.store.get("assignment", assignment_id);
@@ -562,7 +625,7 @@ impl<'a> StandaloneService<'a> {
             conversation.currency.clone(),
             "echo".into(),
             None,
-            shipping_required,
+            conversation.shipping_required,
             brief.revision_limit,
         )?;
         let assignment = service.assignment_status(&assignment.id, "accepted")?;
@@ -714,17 +777,27 @@ impl<'a> StandaloneService<'a> {
         if submission.status != "approved" {
             bail!("submission must be approved before release");
         }
+        let assets: Vec<Asset> = self.store.list("asset", Some(&submission.id), None)?;
         let rights: Vec<UsageRights> =
             self.store
                 .list("usage_rights", Some(&assignment.id), None)?;
-        if rights.is_empty() {
-            bail!("usage rights must be recorded before release");
+        let applicable_rights: Vec<&UsageRights> = rights
+            .iter()
+            .filter(|rights| {
+                rights.asset_id.is_none()
+                    || assets
+                        .iter()
+                        .any(|asset| rights.asset_id.as_deref() == Some(&asset.id))
+            })
+            .collect();
+        if applicable_rights.is_empty() {
+            bail!("usage rights for the approved submission must be recorded before release");
         }
-        if rights
+        if applicable_rights
             .iter()
             .any(|rights| !rights.model_release || !rights.music_cleared)
         {
-            bail!("all rights records must confirm model release and music clearance");
+            bail!("applicable rights must confirm model release and music clearance");
         }
         let escrow = format!("escrow:{}", assignment.id);
         let balance = self.balance(&escrow, &payment.currency)?.balance_minor;
@@ -861,6 +934,7 @@ impl<'a> StandaloneService<'a> {
         asset_id: &str,
         platform: String,
         channel: String,
+        territory: Option<String>,
         post_id: Option<String>,
         url: String,
         paid: bool,
@@ -868,6 +942,21 @@ impl<'a> StandaloneService<'a> {
     ) -> Result<StandalonePublication> {
         if url.trim().is_empty() {
             bail!("publication URL is required");
+        }
+        if platform.trim().is_empty() || channel.trim().is_empty() {
+            bail!("publication platform and channel are required");
+        }
+        if post_id
+            .as_deref()
+            .is_some_and(|post_id| post_id.trim().is_empty())
+        {
+            bail!("publication post ID cannot be empty");
+        }
+        if territory
+            .as_deref()
+            .is_some_and(|territory| territory.trim().is_empty())
+        {
+            bail!("publication territory cannot be empty");
         }
         let assignment: Assignment = self.store.get("assignment", assignment_id)?;
         let submission: Submission = self.store.get("submission", submission_id)?;
@@ -878,9 +967,14 @@ impl<'a> StandaloneService<'a> {
         if asset.submission_id.as_deref() != Some(submission_id) {
             bail!("asset does not belong to submission");
         }
-        let rights =
-            self.core()
-                .check_rights(assignment_id, &channel, paid, published_at.as_deref())?;
+        let rights = self.core().check_rights(
+            assignment_id,
+            Some(asset_id),
+            &channel,
+            territory.as_deref(),
+            paid,
+            published_at.as_deref(),
+        )?;
         if rights.get("allowed").and_then(Value::as_bool) != Some(true) {
             bail!("publication blocked by usage rights: {rights}");
         }
@@ -889,6 +983,24 @@ impl<'a> StandaloneService<'a> {
         let external_id = post_id
             .as_ref()
             .map(|post_id| format!("{}:{post_id}", platform.to_ascii_lowercase()));
+        if let Some(external_id) = external_id.as_deref() {
+            if let Some(existing) = self
+                .store
+                .find_external::<StandalonePublication>("standalone_publication", external_id)?
+            {
+                let same_publication = existing.assignment_id == assignment_id
+                    && existing.submission_id == submission_id
+                    && existing.asset_id == asset_id
+                    && existing.channel.eq_ignore_ascii_case(&channel)
+                    && existing.territory == territory
+                    && existing.url == url
+                    && existing.paid == paid;
+                if same_publication {
+                    return Ok(existing);
+                }
+                bail!("platform post ID was already used for a different publication");
+            }
+        }
         let publication = StandalonePublication {
             id: Store::id(),
             campaign_id: assignment.campaign_id.clone(),
@@ -898,6 +1010,7 @@ impl<'a> StandaloneService<'a> {
             asset_id: asset.id,
             platform,
             channel,
+            territory,
             post_id,
             url,
             tracking_code,
@@ -933,6 +1046,13 @@ impl<'a> StandaloneService<'a> {
     ) -> Result<MetricSnapshot> {
         let mut publication: StandalonePublication =
             self.store.get("standalone_publication", publication_id)?;
+        let campaign: Campaign = self.store.get("campaign", &publication.campaign_id)?;
+        if input.currency.trim().is_empty() || input.source.trim().is_empty() {
+            bail!("metric currency and source are required");
+        }
+        if !input.currency.eq_ignore_ascii_case(&campaign.currency) {
+            bail!("metric currency must match campaign currency");
+        }
         let counters = [
             input.views,
             input.likes,
@@ -968,6 +1088,7 @@ impl<'a> StandaloneService<'a> {
             }
         }
         let captured_at = input.captured_at.unwrap_or_else(Store::now);
+        DateTime::parse_from_rfc3339(&captured_at).context("invalid metric capture timestamp")?;
         let snapshot = MetricSnapshot {
             id: Store::id(),
             publication_id: publication_id.into(),
@@ -1028,7 +1149,8 @@ impl<'a> StandaloneService<'a> {
         metadata: Value,
         occurred_at: Option<String>,
     ) -> Result<AttributionEvent> {
-        let _: StandalonePublication = self.store.get("standalone_publication", publication_id)?;
+        let publication: StandalonePublication =
+            self.store.get("standalone_publication", publication_id)?;
         if event_type.trim().is_empty() {
             bail!("attribution event type is required");
         }
@@ -1038,6 +1160,37 @@ impl<'a> StandaloneService<'a> {
         if value_minor.is_some() != currency.is_some() {
             bail!("value and currency must be supplied together");
         }
+        if let Some(currency) = &currency {
+            let campaign: Campaign = self.store.get("campaign", &publication.campaign_id)?;
+            if !currency.eq_ignore_ascii_case(&campaign.currency) {
+                bail!("attribution currency must match campaign currency");
+            }
+        }
+        if currency
+            .as_deref()
+            .is_some_and(|currency| currency.trim().is_empty())
+        {
+            bail!("attribution currency cannot be empty");
+        }
+        if let Some(external_event_id) = external_event_id.as_deref() {
+            if let Some(existing) = self
+                .store
+                .find_external::<AttributionEvent>("attribution_event", external_event_id)?
+            {
+                let same_event = existing.publication_id == publication_id
+                    && existing.event_type.eq_ignore_ascii_case(&event_type)
+                    && existing.value_minor == value_minor
+                    && existing.currency == currency
+                    && existing.metadata == metadata;
+                if same_event {
+                    return Ok(existing);
+                }
+                bail!("external attribution event ID was already used for a different event");
+            }
+        }
+        let occurred_at = occurred_at.unwrap_or_else(Store::now);
+        DateTime::parse_from_rfc3339(&occurred_at)
+            .context("invalid attribution occurrence timestamp")?;
         let now = Store::now();
         let event = AttributionEvent {
             id: Store::id(),
@@ -1047,7 +1200,7 @@ impl<'a> StandaloneService<'a> {
             value_minor,
             currency,
             metadata,
-            occurred_at: occurred_at.unwrap_or_else(Store::now),
+            occurred_at,
             created_at: now.clone(),
         };
         self.store.put(
@@ -1078,6 +1231,9 @@ impl<'a> StandaloneService<'a> {
             self.store.list("assignment", Some(campaign_id), None)?;
         let mut totals = MetricTotals::default();
         let mut rows = Vec::new();
+        let mut attributed_revenue_minor = zero();
+        let mut attributed_conversions = zero();
+        let mut attributed_events = zero();
         for publication in &publications {
             let snapshots: Vec<MetricSnapshot> =
                 self.store
@@ -1086,7 +1242,20 @@ impl<'a> StandaloneService<'a> {
             if let Some(snapshot) = &latest {
                 totals.add(snapshot);
             }
-            rows.push(json!({"publication": publication, "latest": latest}));
+            let attribution: Vec<AttributionEvent> =
+                self.store
+                    .list("attribution_event", Some(&publication.id), None)?;
+            attributed_events +=
+                i64::try_from(attribution.len()).context("attribution count overflow")?;
+            for event in &attribution {
+                attributed_revenue_minor += event.value_minor.unwrap_or_default();
+                if is_conversion_event(&event.event_type) {
+                    attributed_conversions += int("1");
+                }
+            }
+            rows.push(
+                json!({"publication": publication, "latest": latest, "attribution": attribution}),
+            );
         }
         let creator_cost_minor: i64 = assignments
             .iter()
@@ -1095,18 +1264,32 @@ impl<'a> StandaloneService<'a> {
         let engagement = totals.likes + totals.comments + totals.shares + totals.saves;
         let engagement_rate = ratio(engagement, totals.views);
         let click_rate = ratio(totals.clicks, totals.views);
-        let conversion_rate = ratio(totals.conversions, totals.clicks);
+        let canonical_conversions = if attributed_conversions > zero() {
+            attributed_conversions
+        } else {
+            totals.conversions
+        };
+        let canonical_revenue_minor = if attributed_revenue_minor > zero() {
+            attributed_revenue_minor
+        } else {
+            totals.revenue_minor
+        };
+        let conversion_rate = ratio(canonical_conversions, totals.clicks);
         let tracked_cost = creator_cost_minor + totals.spend_minor;
-        let roas = ratio(totals.revenue_minor, tracked_cost);
+        let roas = ratio(canonical_revenue_minor, tracked_cost);
         Ok(json!({
             "campaign": campaign,
             "publications": rows,
             "totals": {
                 "views": totals.views, "likes": totals.likes, "comments": totals.comments,
                 "shares": totals.shares, "saves": totals.saves, "clicks": totals.clicks,
-                "conversions": totals.conversions, "revenue_minor": totals.revenue_minor,
+                "conversions": canonical_conversions, "revenue_minor": canonical_revenue_minor,
                 "media_spend_minor": totals.spend_minor, "creator_cost_minor": creator_cost_minor,
                 "tracked_cost_minor": tracked_cost,
+                "metric_revenue_minor": totals.revenue_minor,
+                "attributed_revenue_minor": attributed_revenue_minor,
+                "attributed_conversions": attributed_conversions,
+                "attribution_events": attributed_events,
             },
             "rates": {"engagement_rate": engagement_rate, "click_rate": click_rate, "conversion_rate": conversion_rate, "roas": roas},
             "currency": campaign.currency,
@@ -1177,11 +1360,92 @@ impl<'a> StandaloneService<'a> {
         }
 
         for assignment in &mut assignments {
+            let shipments: Vec<Shipment> =
+                self.store.list("shipment", Some(&assignment.id), None)?;
+            if assignment.status == "accepted" {
+                if assignment.shipping_required {
+                    if shipments.iter().any(|shipment| {
+                        matches!(
+                            shipment.status.as_str(),
+                            "ready_to_ship" | "shipped" | "delivered"
+                        )
+                    }) {
+                        actions.push(format!(
+                            "assignment {} accepted -> product_shipping",
+                            assignment.id
+                        ));
+                        if apply {
+                            *assignment =
+                                service.assignment_status(&assignment.id, "product_shipping")?;
+                        }
+                    } else {
+                        blockers.push(format!(
+                            "collect shipping address for assignment {}",
+                            assignment.id
+                        ));
+                    }
+                } else {
+                    actions.push(format!(
+                        "assignment {} accepted -> in_production",
+                        assignment.id
+                    ));
+                    if apply {
+                        *assignment = service.assignment_status(&assignment.id, "in_production")?;
+                    }
+                }
+            }
+            if assignment.status == "product_shipping" {
+                if shipments
+                    .iter()
+                    .any(|shipment| shipment.status == "delivered")
+                {
+                    actions.push(format!(
+                        "assignment {} product_shipping -> in_production",
+                        assignment.id
+                    ));
+                    if apply {
+                        *assignment = service.assignment_status(&assignment.id, "in_production")?;
+                    }
+                } else {
+                    blockers.push(format!(
+                        "deliver product shipment for assignment {}",
+                        assignment.id
+                    ));
+                }
+            }
             let submissions: Vec<Submission> =
                 self.store.list("submission", Some(&assignment.id), None)?;
             let approved_submission = submissions
                 .iter()
                 .find(|submission| submission.status == "approved");
+            if assignment.status == "in_production"
+                && submissions
+                    .iter()
+                    .all(|submission| submission.status == "rejected")
+            {
+                blockers.push(format!("submit media for assignment {}", assignment.id));
+            }
+            if submissions
+                .iter()
+                .any(|submission| submission.status == "received")
+            {
+                blockers.push(format!("run QC for assignment {}", assignment.id));
+            }
+            if submissions
+                .iter()
+                .any(|submission| submission.status == "pending_review")
+            {
+                blockers.push(format!(
+                    "review submission for assignment {}",
+                    assignment.id
+                ));
+            }
+            if assignment.status == "revision_requested" {
+                blockers.push(format!(
+                    "submit a revised asset for assignment {}",
+                    assignment.id
+                ));
+            }
             if assignment.status == "submitted" && approved_submission.is_some() {
                 actions.push(format!(
                     "assignment {} submitted -> approved",
@@ -1194,13 +1458,33 @@ impl<'a> StandaloneService<'a> {
             let rights: Vec<UsageRights> =
                 self.store
                     .list("usage_rights", Some(&assignment.id), None)?;
-            if assignment.status == "approved" && !rights.is_empty() {
+            let approved_assets: Vec<Asset> = match approved_submission {
+                Some(submission) => self.store.list("asset", Some(&submission.id), None)?,
+                None => Vec::new(),
+            };
+            let applicable_rights: Vec<&UsageRights> = rights
+                .iter()
+                .filter(|rights| {
+                    rights.asset_id.is_none()
+                        || approved_assets
+                            .iter()
+                            .any(|asset| rights.asset_id.as_deref() == Some(&asset.id))
+                })
+                .collect();
+            let rights_ready = !applicable_rights.is_empty()
+                && applicable_rights
+                    .iter()
+                    .all(|rights| rights.model_release && rights.music_cleared);
+            if assignment.status == "approved" && rights_ready {
                 actions.push(format!("assignment {} approved -> licensed", assignment.id));
                 if apply {
                     *assignment = service.assignment_status(&assignment.id, "licensed")?;
                 }
             } else if assignment.status == "approved" {
-                blockers.push(format!("record rights for assignment {}", assignment.id));
+                blockers.push(format!(
+                    "record complete rights for assignment {} approved submission",
+                    assignment.id
+                ));
             }
             let mut payments: Vec<Payment> =
                 self.store.list("payment", Some(&assignment.id), None)?;
@@ -1361,7 +1645,7 @@ impl<'a> StandaloneService<'a> {
             "interested" => Some(format!("Thanks for your interest. The current offer is {} {} in minor units. Reply ACCEPT to confirm, or send your requested rate and questions.", conversation.offered_compensation_minor.unwrap_or_default(), conversation.currency)),
             "pricing" => Some(format!("Thanks. Our recorded offer is {} {} in minor units. Send the rate you can accept and any scope assumptions; an operator will review changes.", conversation.offered_compensation_minor.unwrap_or_default(), conversation.currency)),
             "question" => Some("Thanks for the question. We recorded it for the campaign operator. You can continue this thread; requirements and decisions remain attached to your portal record.".into()),
-            "accepted" => Some("Acceptance received. Your assignment will appear in this portal after the workflow validates the approved brief and compensation.".into()),
+            "accepted" => Some("Acceptance recorded. Your assignment is now available in this portal with the agreed compensation and approved brief.".into()),
             "submitted" => Some("Delivery notice received. Upload or register the submission in the portal so it can enter QC and human review.".into()),
             "opt_out" | "declined" => None,
             _ => Some("Thanks—we recorded your message. A campaign operator can review this thread and respond here.".into()),
@@ -1458,13 +1742,37 @@ impl<'a> StandaloneService<'a> {
             .store
             .find_external::<LedgerTransfer>("ledger_transfer", &idempotency_key)?
         {
-            return Ok(existing);
+            let same_request = existing.from_account == from_account
+                && existing.to_account == to_account
+                && existing.amount_minor == amount_minor
+                && existing.currency.eq_ignore_ascii_case(&currency)
+                && existing.kind == kind
+                && existing.assignment_id == assignment_id
+                && existing.payment_id == payment_id
+                && existing.reference == reference
+                && existing.reversal_of == reversal_of;
+            if same_request {
+                return Ok(existing);
+            }
+            bail!("ledger idempotency key was already used for a different transfer");
         }
-        if let Some(assignment) = &assignment_id {
-            let _: Assignment = self.store.get("assignment", assignment)?;
+        if let Some(assignment_id) = &assignment_id {
+            let assignment: Assignment = self.store.get("assignment", assignment_id)?;
+            if !assignment.currency.eq_ignore_ascii_case(&currency) {
+                bail!("ledger currency must match assignment currency");
+            }
         }
-        if let Some(payment) = &payment_id {
-            let _: Payment = self.store.get("payment", payment)?;
+        if let Some(payment_id) = &payment_id {
+            let payment: Payment = self.store.get("payment", payment_id)?;
+            if assignment_id.as_deref() != Some(&payment.assignment_id) {
+                bail!("ledger payment does not belong to assignment");
+            }
+            if !payment.currency.eq_ignore_ascii_case(&currency) {
+                bail!("ledger currency must match payment currency");
+            }
+            if payment.amount_minor != amount_minor {
+                bail!("ledger amount must match payment amount");
+            }
         }
         let now = Store::now();
         let transfer = LedgerTransfer {
@@ -1675,6 +1983,13 @@ fn hash_token(token: &str) -> String {
 
 fn ratio(numerator: i64, denominator: i64) -> Option<f64> {
     (denominator > zero()).then(|| numerator as f64 / denominator as f64)
+}
+
+fn is_conversion_event(event_type: &str) -> bool {
+    matches!(
+        event_type.to_ascii_lowercase().as_str(),
+        "conversion" | "order" | "purchase" | "sale"
+    )
 }
 
 fn unique(values: Vec<String>) -> Vec<String> {

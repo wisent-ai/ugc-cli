@@ -156,6 +156,19 @@ pub struct Assignment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShippingAddress {
+    pub recipient_name: String,
+    pub line1: String,
+    #[serde(default)]
+    pub line2: Option<String>,
+    pub city: String,
+    #[serde(default)]
+    pub region: Option<String>,
+    pub postal_code: String,
+    pub country: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Shipment {
     pub id: String,
     pub assignment_id: String,
@@ -163,6 +176,8 @@ pub struct Shipment {
     pub carrier: Option<String>,
     pub tracking_number: Option<String>,
     pub product_variant: Option<String>,
+    #[serde(default)]
+    pub shipping_address: Option<ShippingAddress>,
     pub shipped_at: Option<String>,
     pub delivered_at: Option<String>,
     pub created_at: String,
@@ -322,6 +337,8 @@ pub struct Conversation {
     pub stage: String,
     pub offered_compensation_minor: Option<i64>,
     pub currency: String,
+    #[serde(default)]
+    pub shipping_required: bool,
     pub next_action_at: Option<String>,
     pub last_inbound_at: Option<String>,
     pub last_outbound_at: Option<String>,
@@ -389,6 +406,8 @@ pub struct StandalonePublication {
     pub asset_id: String,
     pub platform: String,
     pub channel: String,
+    #[serde(default)]
+    pub territory: Option<String>,
     pub post_id: Option<String>,
     pub url: String,
     pub tracking_code: String,

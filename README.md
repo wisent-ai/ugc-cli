@@ -39,6 +39,8 @@ export UGC_ASSET_DIR="$PWD/.ugc/assets"
 
 CLI-level `--db` and `--asset-dir` override environment defaults.
 
+On Unix, the database, its SQLite sidecars, exported backups, and stored assets are forced to owner-only permissions. Symbolic-link database and asset-directory paths are rejected.
+
 ## Standalone mode: complete local workflow
 
 Standalone mode requires no creator marketplace, Weles, Brama, Skarbiec, Stripe, email provider, hosted database, or external API. SQLite is the system of record, assets stay in the local content-addressed library, conversations use the local creator portal, payouts use the internal escrow ledger plus an operator-recorded offline settlement, and publication metrics can be entered locally.
@@ -49,8 +51,8 @@ What works locally:
 - deterministic outreach and two-way conversation threads
 - intent classification, opt-out handling, and safe automatic replies
 - one-time creator portal capability links
-- offer acceptance and assignment creation
-- creator submission from a local media path
+- offer acceptance, optional shipping-address collection, and assignment creation
+- browser media upload into the local content-addressed library
 - asset hashing, technical QC, human review, revisions, and rights gates
 - immutable idempotent escrow transfers and offline-settlement references
 - publication registration, cumulative metric snapshots, attribution events, and campaign performance reports
@@ -84,6 +86,7 @@ ugc-cli standalone launch \
   --niches beauty \
   --channels instagram \
   --offer-minor 25000 \
+  --shipping-required \
   --limit 10
 ```
 
@@ -110,10 +113,10 @@ ugc-cli standalone conversation-send CONVERSATION_ID \
 
 Inbound messages are classified as interested, accepted, pricing, question, submitted, declined, opt-out, or other. `STOP`, unsubscribe, and equivalent Polish phrases close the conversation without another automated reply.
 
-Accepting a conversation creates the standalone assignment:
+Accepting a conversation creates the standalone assignment. Add `--shipping-required` for a physical-product campaign:
 
 ```bash
-ugc-cli standalone conversation-accept CONVERSATION_ID
+ugc-cli standalone conversation-accept CONVERSATION_ID --shipping-required
 ```
 
 ### Local creator portal and operator API
@@ -130,7 +133,12 @@ To let new creators enroll themselves locally:
 ugc-cli standalone serve --allow-registration
 ```
 
-The enrollment form is then available at `http://127.0.0.1:8765/register`. Registration requires a unique email, creates the canonical creator profile and identities, and returns a creator portal token once.
+The enrollment form is then available at `http://127.0.0.1:8765/register`. Registration requires a unique email, creates the canonical creator profile and self-reported identities, and returns a creator portal token once. Self-registered creators remain excluded from discovery until an operator verifies the profile:
+
+```bash
+ugc-cli creator verify CREATOR_ID \
+  --metadata '{"verification_source":"manual portfolio review"}'
+```
 
 Open:
 
@@ -143,8 +151,9 @@ The creator portal can:
 
 - reply in a campaign conversation,
 - accept the recorded offer,
+- enter a shipping address when a physical product is required,
 - see assignment state and compensation,
-- submit a media file available on the same machine.
+- upload a media file from the browser.
 
 Operator JSON endpoints:
 
@@ -164,7 +173,8 @@ Operator JSON endpoints:
 | GET | `/api/portal/{token}` | creator portal data |
 | POST | `/api/portal/{token}/reply` | creator reply |
 | POST | `/api/portal/{token}/accept` | creator acceptance |
-| POST | `/api/portal/{token}/submission` | local-file submission |
+| POST | `/api/portal/{token}/shipping` | save an assignment shipping address |
+| POST | `/api/portal/{token}/submission` | stream a browser media upload |
 
 The default listener is loopback-only. Binding to a non-loopback address fails unless an operator bearer token is supplied:
 
@@ -175,6 +185,30 @@ ugc-cli standalone serve \
 ```
 
 Creator portal tokens are random capabilities stored only as SHA-256 hashes. The plaintext token is returned once. Operator token files must satisfy the same owner-only, non-symlink checks as provider secrets.
+
+### Physical-product shipping
+
+For assignments accepted with `--shipping-required`, the creator portal collects the recipient address and marks the shipment ready. Inspect it and record dispatch:
+
+```bash
+ugc-cli shipment list --assignment ASSIGNMENT_ID
+
+ugc-cli shipment update \
+  --assignment ASSIGNMENT_ID \
+  --status shipped \
+  --carrier CARRIER \
+  --tracking TRACKING_NUMBER
+```
+
+After delivery is confirmed:
+
+```bash
+ugc-cli shipment update \
+  --assignment ASSIGNMENT_ID \
+  --status delivered
+```
+
+The workflow will not move a physical-product assignment into production until delivery is recorded. Shipping addresses remain in the owner-only local database.
 
 ### Submission, QC, review, and rights
 
@@ -337,7 +371,7 @@ Safe apply mode advances only transitions already supported by evidence:
 ugc-cli standalone workflow --campaign CAMPAIGN_ID --apply
 ```
 
-It can advance campaign state, advance approved submissions into licensed assignments, create payment records, release explicitly funded escrow when requested, complete paid assignments, and complete campaigns that have a recorded publication. Human review, rights creation, escrow funding, and real offline settlement remain explicit gates.
+It can advance campaign state, move shipped physical-product assignments into production, advance approved submissions into licensed assignments, create payment records, release explicitly funded escrow when requested, complete paid assignments, and complete campaigns that have a recorded publication. Human review, rights creation, escrow funding, and real offline settlement remain explicit gates.
 
 ```bash
 ugc-cli standalone dashboard

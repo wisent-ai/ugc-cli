@@ -42,6 +42,7 @@ pub fn import_asset(
     }
     fs::create_dir_all(asset_dir)
         .with_context(|| format!("cannot create {}", asset_dir.display()))?;
+    protect_asset_directory(asset_dir)?;
     let temp_path = asset_dir.join(format!("{}.part", Store::id()));
     let input = File::open(source)?;
     let mut reader = BufReader::new(input);
@@ -76,6 +77,7 @@ pub fn import_asset(
     } else {
         fs::rename(&temp_path, &final_path)?;
     }
+    protect_asset_file(&final_path)?;
 
     let file_meta = fs::metadata(&final_path)?;
     let mime_type = infer::get_from_path(&final_path)?
@@ -325,4 +327,35 @@ fn gcd(mut left: i64, mut right: i64) -> i64 {
         right = remainder;
     }
     left
+}
+
+#[cfg(unix)]
+fn protect_asset_directory(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    if fs::symlink_metadata(path)?.file_type().is_symlink() {
+        bail!("asset directory must not be a symbolic link");
+    }
+    let mode = u32::from_str_radix("700", "security".len())?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("cannot protect {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn protect_asset_directory(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn protect_asset_file(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mode = u32::from_str_radix("600", "security".len())?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("cannot protect {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn protect_asset_file(_path: &Path) -> Result<()> {
+    Ok(())
 }

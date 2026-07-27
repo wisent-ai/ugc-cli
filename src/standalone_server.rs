@@ -1,8 +1,10 @@
 use std::{
     collections::BTreeMap,
+    fs,
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::Path,
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -12,7 +14,7 @@ use serde_json::{Value, json};
 use crate::{
     db::Store,
     media,
-    model::{Assignment, Campaign, Conversation, Creator},
+    model::{Assignment, Campaign, Conversation, Creator, ShippingAddress},
     service::UgcService,
     standalone::{CreatorSeed, StandaloneService},
 };
@@ -37,14 +39,19 @@ pub fn serve(
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                let response = handle(
-                    store,
-                    asset_dir,
-                    actor,
-                    operator_token.as_deref(),
-                    allow_registration,
-                    &mut stream,
-                )
+                let response = (|| -> Result<Response> {
+                    let timeout = Duration::from_secs(request_timeout_seconds());
+                    stream.set_read_timeout(Some(timeout))?;
+                    stream.set_write_timeout(Some(timeout))?;
+                    handle(
+                        store,
+                        asset_dir,
+                        actor,
+                        operator_token.as_deref(),
+                        allow_registration,
+                        &mut stream,
+                    )
+                })()
                 .unwrap_or_else(|error| {
                     Response::json(
                         "HTTP/1.1 400 Bad Request",
@@ -167,6 +174,13 @@ fn operator_api(store: &Store, actor: &str, request: &Request) -> Result<Respons
         )),
         ("POST", "/api/conversations") => {
             let input: NewConversation = request.json()?;
+            let currency = match (input.currency, input.campaign_id.as_deref()) {
+                (Some(currency), _) => currency,
+                (None, Some(campaign_id)) => {
+                    store.get::<Campaign>("campaign", campaign_id)?.currency
+                }
+                (None, None) => "USD".into(),
+            };
             Ok(Response::json(
                 "HTTP/1.1 201 Created",
                 standalone.create_conversation(
@@ -174,7 +188,8 @@ fn operator_api(store: &Store, actor: &str, request: &Request) -> Result<Respons
                     input.campaign_id,
                     input.brief_id,
                     input.offered_compensation_minor,
-                    input.currency.unwrap_or_else(|| "USD".into()),
+                    currency,
+                    input.shipping_required,
                     input.initial_message,
                 )?,
             ))
@@ -210,12 +225,10 @@ fn operator_api(store: &Store, actor: &str, request: &Request) -> Result<Respons
                 .and_then(|path| path.strip_suffix("/accept"))
             {
                 if request.method == "POST" {
-                    let input: AcceptConversation = request.json_or_default()?;
+                    let _: EmptyRequest = request.json_or_default()?;
                     return Ok(Response::json(
                         "HTTP/1.1 200 OK",
-                        serde_json::to_value(
-                            standalone.accept_conversation(id, input.shipping_required)?,
-                        )?,
+                        serde_json::to_value(standalone.accept_conversation(id)?)?,
                     ));
                 }
             }
@@ -300,17 +313,72 @@ fn portal_api(
             }
             Ok(Response::json(
                 "HTTP/1.1 200 OK",
-                serde_json::to_value(
-                    standalone
-                        .accept_conversation(&input.conversation_id, input.shipping_required)?,
-                )?,
+                serde_json::to_value(standalone.accept_conversation(&input.conversation_id)?)?,
+            ))
+        }
+        ("POST", Some("shipping")) => {
+            let input: PortalShipping = request.json()?;
+            let assignment: Assignment = store.get("assignment", &input.assignment_id)?;
+            if assignment.creator_id != creator.id {
+                bail!("assignment does not belong to portal creator");
+            }
+            if !assignment.shipping_required {
+                bail!("assignment does not require product shipping");
+            }
+            if !matches!(assignment.status.as_str(), "accepted" | "product_shipping") {
+                bail!("shipping address cannot be changed in the current assignment state");
+            }
+            Ok(Response::json(
+                "HTTP/1.1 200 OK",
+                serde_json::to_value(core.update_shipment(
+                    assignment.id,
+                    "ready_to_ship".into(),
+                    None,
+                    None,
+                    None,
+                    Some(input.address),
+                )?)?,
             ))
         }
         ("POST", Some("submission")) => {
-            let input: PortalSubmission = request.json()?;
-            let mut assignment: Assignment = store.get("assignment", &input.assignment_id)?;
+            if request
+                .headers
+                .get("content-type")
+                .is_none_or(|value| !value.eq_ignore_ascii_case("application/octet-stream"))
+            {
+                bail!("submission Content-Type must be application/octet-stream");
+            }
+            if request.body.is_empty() {
+                bail!("submission file is empty");
+            }
+            let assignment_id = request
+                .headers
+                .get("x-assignment-id")
+                .context("X-Assignment-Id header is required")?;
+            let role = request
+                .headers
+                .get("x-role")
+                .map(String::as_str)
+                .unwrap_or("final");
+            if !matches!(role, "final" | "raw" | "thumbnail") {
+                bail!("submission role must be final, raw, or thumbnail");
+            }
+            let encoded_name = request
+                .headers
+                .get("x-file-name")
+                .context("X-File-Name header is required")?;
+            let decoded_name = percent_decode(encoded_name)?;
+            let file_name = Path::new(&decoded_name)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())
+                .context("submission file name is invalid")?;
+            let mut assignment: Assignment = store.get("assignment", assignment_id)?;
             if assignment.creator_id != creator.id {
                 bail!("assignment does not belong to portal creator");
+            }
+            if assignment.status == "accepted" && assignment.shipping_required {
+                bail!("product delivery must be completed before media submission");
             }
             if assignment.status == "accepted" {
                 assignment = core.assignment_status(&assignment.id, "in_production")?;
@@ -321,15 +389,35 @@ fn portal_api(
             if assignment.status != "in_production" {
                 bail!("assignment is not ready for a submission");
             }
+            let incoming_dir = asset_dir.join(".incoming");
+            fs::create_dir_all(&incoming_dir)?;
+            let incoming_path = incoming_dir.join(format!("{}-{file_name}", Store::id()));
+            fs::write(&incoming_path, &request.body)?;
+            let imported =
+                media::import_asset(store, asset_dir, &incoming_path, None, role, None, actor);
+            let cleanup_error = fs::remove_file(&incoming_path).err();
+            let mut asset = imported?;
+            if let Some(error) = cleanup_error {
+                eprintln!("standalone upload cleanup failed: {error}");
+            }
             let submission = core.add_submission(assignment.id.clone(), None)?;
-            let asset = media::import_asset(
-                store,
-                asset_dir,
-                Path::new(&input.file_path),
+            asset.submission_id = Some(submission.id.clone());
+            store.put(
+                "asset",
+                &asset.id,
                 Some(&submission.id),
-                input.role.as_deref().unwrap_or("final"),
                 None,
+                "available",
+                Some(&asset.sha256),
+                &asset,
+                &asset.created_at,
+            )?;
+            store.audit(
+                "asset",
+                &asset.id,
+                "submission_attached",
                 actor,
+                &json!({"submission_id": submission.id}),
             )?;
             let assignment = core.assignment_status(&assignment.id, "submitted")?;
             Ok(Response::json(
@@ -356,7 +444,7 @@ fn portal_page(store: &Store, token: &str, actor: &str) -> Result<Response> {
         .collect();
     let token_json = serde_json::to_string(token)?;
     let mut html = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>UGC creator portal</title><style>{}</style></head><body><main><h1>Welcome, {}</h1><p>Reply, accept assignments, and submit local media without any external platform.</p><div id=\"notice\" role=\"status\"></div>",
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>UGC creator portal</title><style>{}</style></head><body><main><h1>Welcome, {}</h1><p>Reply, accept assignments, and upload media directly without any external platform.</p><div id=\"notice\" role=\"status\"></div>",
         portal_css(),
         escape_html(&creator.display_name)
     );
@@ -374,15 +462,41 @@ fn portal_page(store: &Store, token: &str, actor: &str) -> Result<Response> {
     }
     html.push_str("<h2>Assignments</h2>");
     for assignment in assignments {
+        if assignment.shipping_required
+            && matches!(assignment.status.as_str(), "accepted" | "product_shipping")
+        {
+            html.push_str(&format!(
+                "<section><strong>Shipping address</strong><input id=\"ship-name-{}\" placeholder=\"Recipient name\"><input id=\"ship-line1-{}\" placeholder=\"Address line\"><input id=\"ship-line2-{}\" placeholder=\"Address line 2 (optional)\"><input id=\"ship-city-{}\" placeholder=\"City\"><input id=\"ship-region-{}\" placeholder=\"Region (optional)\"><input id=\"ship-postal-{}\" placeholder=\"Postal code\"><input id=\"ship-country-{}\" placeholder=\"Country code\"><button onclick=\"saveShipping('{}')\">Save shipping address</button></section>",
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+            ));
+        }
         html.push_str(&format!(
-            "<section><strong>{}</strong><p>Status: {} · Compensation: {} {}</p><input id=\"file-{}\" placeholder=\"Absolute path to a local media file\"><button onclick=\"submitAsset('{}')\">Submit media</button></section>",
+            "<section><strong>{}</strong><p>Status: {} · Compensation: {} {}</p>",
             escape_html(&assignment.id),
             escape_html(&assignment.status),
             assignment.compensation_minor.unwrap_or_default(),
             escape_html(&assignment.currency),
-            escape_html(&assignment.id),
-            escape_html(&assignment.id),
         ));
+        if matches!(
+            assignment.status.as_str(),
+            "in_production" | "revision_requested"
+        ) {
+            html.push_str(&format!(
+                "<input id=\"file-{}\" type=\"file\" accept=\"video/*,image/*,audio/*\"><button onclick=\"submitAsset('{}')\">Submit media</button>",
+                escape_html(&assignment.id),
+                escape_html(&assignment.id),
+            ));
+        } else {
+            html.push_str("<p>Media upload becomes available when production starts.</p>");
+        }
+        html.push_str("</section>");
     }
     html.push_str(&format!(
         r#"<script>
@@ -394,8 +508,9 @@ async function callPortal(action,payload){{
  if(response.ok) setTimeout(()=>location.reload(),700);
 }}
 function replyTo(id){{const body=document.getElementById(`reply-${{id}}`).value;callPortal('reply',{{conversation_id:id,body}});}}
-function acceptConversation(id){{callPortal('accept',{{conversation_id:id,shipping_required:false}});}}
-function submitAsset(id){{const file_path=document.getElementById(`file-${{id}}`).value;callPortal('submission',{{assignment_id:id,file_path,role:'final'}});}}
+function acceptConversation(id){{callPortal('accept',{{conversation_id:id}});}}
+function saveShipping(id){{const value=name=>document.getElementById(`${{name}}-${{id}}`).value;const optional=name=>{{const item=value(name).trim();return item||null;}};callPortal('shipping',{{assignment_id:id,address:{{recipient_name:value('ship-name'),line1:value('ship-line1'),line2:optional('ship-line2'),city:value('ship-city'),region:optional('ship-region'),postal_code:value('ship-postal'),country:value('ship-country')}}}});}}
+async function submitAsset(id){{const input=document.getElementById(`file-${{id}}`);const file=input.files.item(''.length);const notice=document.getElementById('notice');if(!file){{notice.textContent='Select a media file first';notice.className='error';return;}}const response=await fetch(`/api/portal/${{portalToken}}/submission`,{{method:'POST',headers:{{'content-type':'application/octet-stream','x-assignment-id':id,'x-file-name':encodeURIComponent(file.name),'x-role':'final'}},body:file}});const data=await response.json();notice.textContent=response.ok?'Media submitted successfully':(data.error||'Upload failed');notice.className=response.ok?'ok':'error';if(response.ok)location.reload();}}
 </script></main></body></html>"#
     ));
     Ok(Response::html(html))
@@ -403,8 +518,7 @@ function submitAsset(id){{const file_path=document.getElementById(`file-${{id}}`
 
 fn read_request(stream: &mut TcpStream) -> Result<Request> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let mut first_line = String::new();
-    reader.read_line(&mut first_line)?;
+    let first_line = read_http_line(&mut reader)?;
     let mut parts = first_line.split_whitespace();
     let method = parts
         .next()
@@ -416,20 +530,35 @@ fn read_request(stream: &mut TcpStream) -> Result<Request> {
     let query = parse_query(raw_query)?;
     let mut headers = BTreeMap::new();
     loop {
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
+        let line = read_http_line(&mut reader)?;
         if line == "\r\n" || line == "\n" || line.is_empty() {
             break;
         }
-        if let Some((name, value)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+        if headers.len() >= max_request_header_count() {
+            bail!("too many request headers");
         }
+        let (name, value) = line
+            .split_once(':')
+            .context("request header is malformed")?;
+        let name = name.trim().to_ascii_lowercase();
+        if headers
+            .insert(name.clone(), value.trim().to_string())
+            .is_some()
+        {
+            bail!("duplicate request header: {name}");
+        }
+    }
+    if headers.contains_key("transfer-encoding") {
+        bail!("Transfer-Encoding is not supported");
     }
     let length = headers
         .get("content-length")
         .map(|value| value.parse::<usize>())
         .transpose()?
         .unwrap_or_default();
+    if length > max_request_body_bytes() {
+        bail!("request body exceeds standalone server limit");
+    }
     let mut body = vec![b' '; length];
     reader.read_exact(&mut body)?;
     Ok(Request {
@@ -441,12 +570,37 @@ fn read_request(stream: &mut TcpStream) -> Result<Request> {
     })
 }
 
+fn read_http_line(reader: &mut impl BufRead) -> Result<String> {
+    let limit = max_request_header_line_bytes();
+    let mut bytes = Vec::new();
+    let read = reader
+        .take(limit.saturating_add(usize::from(true)))
+        .read_until(b'\n', &mut bytes)?;
+    if read > limit {
+        bail!("request header line exceeds standalone server limit");
+    }
+    String::from_utf8(bytes).context("request headers must be UTF-8")
+}
+
 impl Request {
+    fn require_json_content_type(&self) -> Result<()> {
+        let is_json = self
+            .headers
+            .get("content-type")
+            .is_some_and(|value| value.to_ascii_lowercase().starts_with("application/json"));
+        if !is_json {
+            bail!("Content-Type must be application/json");
+        }
+        Ok(())
+    }
+
     fn json<T: for<'de> Deserialize<'de>>(&self) -> Result<T> {
+        self.require_json_content_type()?;
         serde_json::from_slice(&self.body).context("request body is not valid JSON")
     }
 
     fn json_or_default<T: for<'de> Deserialize<'de> + Default>(&self) -> Result<T> {
+        self.require_json_content_type()?;
         if self.body.is_empty() {
             Ok(T::default())
         } else {
@@ -473,7 +627,7 @@ fn authorize_operator(expected: Option<&str>, request: &Request) -> Result<()> {
 fn write_response(stream: &mut TcpStream, response: Response) -> Result<()> {
     write!(
         stream,
-        "{}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\n\r\n",
+        "{}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'\r\nCache-Control: no-store\r\n\r\n",
         response.status,
         response.content_type,
         response.body.len()
@@ -559,7 +713,16 @@ struct NewConversation {
     brief_id: Option<String>,
     offered_compensation_minor: Option<i64>,
     currency: Option<String>,
+    #[serde(default)]
+    shipping_required: bool,
     initial_message: Option<String>,
+}
+fn max_request_header_line_bytes() -> usize {
+    usize::from_str_radix("4000", "security".len()).expect("valid request header line limit")
+}
+
+fn max_request_header_count() -> usize {
+    "100".parse().expect("valid request header count limit")
 }
 
 #[derive(Deserialize)]
@@ -569,10 +732,7 @@ struct NewMessage {
 }
 
 #[derive(Deserialize, Default)]
-struct AcceptConversation {
-    #[serde(default)]
-    shipping_required: bool,
-}
+struct EmptyRequest {}
 
 #[derive(Deserialize)]
 struct ReviewSubmission {
@@ -589,13 +749,18 @@ struct PortalReply {
 #[derive(Deserialize)]
 struct PortalAccept {
     conversation_id: String,
-    #[serde(default)]
-    shipping_required: bool,
 }
 
 #[derive(Deserialize)]
-struct PortalSubmission {
+struct PortalShipping {
     assignment_id: String,
-    file_path: String,
-    role: Option<String>,
+    address: ShippingAddress,
+}
+
+fn max_request_body_bytes() -> usize {
+    "104857600".parse().expect("valid request body limit")
+}
+
+fn request_timeout_seconds() -> u64 {
+    "30".parse().expect("valid request timeout")
 }

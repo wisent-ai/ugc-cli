@@ -26,7 +26,7 @@ use crate::{
     media::QcPolicy,
     model::{
         Assignment, Brief, Campaign, Connection, Creator, CreatorIdentity, DiscoveryQuery, Message,
-        Payment, Publication, Shipment, Submission, UsageRights,
+        Payment, Publication, Shipment, ShippingAddress, Submission, UsageRights,
     },
     service::UgcService,
     standalone::{CreatorSeed, MetricInput, StandaloneService},
@@ -231,6 +231,11 @@ enum CreatorCommand {
         #[arg(long, default_value = "{}")]
         metadata: String,
     },
+    Verify {
+        id: String,
+        #[arg(long, default_value = "{}")]
+        metadata: String,
+    },
     List,
     Show {
         id: String,
@@ -319,6 +324,8 @@ enum ShipmentCommand {
         tracking: Option<String>,
         #[arg(long)]
         product_variant: Option<String>,
+        #[arg(long)]
+        address_json: Option<String>,
     },
     List {
         #[arg(long)]
@@ -445,7 +452,11 @@ enum RightsCommand {
         #[arg(long)]
         assignment: String,
         #[arg(long)]
+        asset: Option<String>,
+        #[arg(long)]
         channel: String,
+        #[arg(long)]
+        territory: Option<String>,
         #[arg(long)]
         paid: bool,
         #[arg(long)]
@@ -706,6 +717,8 @@ enum StandaloneCommand {
         limit: Option<usize>,
         #[arg(long)]
         offer_minor: Option<i64>,
+        #[arg(long)]
+        shipping_required: bool,
     },
     ConversationCreate {
         #[arg(long)]
@@ -718,6 +731,8 @@ enum StandaloneCommand {
         offer_minor: Option<i64>,
         #[arg(long, default_value = "USD")]
         currency: String,
+        #[arg(long)]
+        shipping_required: bool,
         #[arg(long)]
         message: Option<String>,
     },
@@ -752,8 +767,6 @@ enum StandaloneCommand {
     },
     ConversationAccept {
         id: String,
-        #[arg(long)]
-        shipping_required: bool,
     },
     PortalCreate {
         #[arg(long)]
@@ -816,6 +829,8 @@ enum StandaloneCommand {
         platform: String,
         #[arg(long)]
         channel: String,
+        #[arg(long)]
+        territory: Option<String>,
         #[arg(long)]
         post_id: Option<String>,
         #[arg(long)]
@@ -1051,6 +1066,9 @@ fn run() -> Result<()> {
                 niches,
                 parse_json(&metadata)?,
             )?)?,
+            CreatorCommand::Verify { id, metadata } => {
+                output(&service.verify_creator(&id, parse_json(&metadata)?)?)?
+            }
             CreatorCommand::List => output(&store.list::<Creator>("creator", None, None)?)?,
             CreatorCommand::Show { id } => output(&store.get::<Creator>("creator", &id)?)?,
             CreatorCommand::Identity {
@@ -1113,13 +1131,20 @@ fn run() -> Result<()> {
                 carrier,
                 tracking,
                 product_variant,
-            } => output(&service.update_shipment(
-                assignment,
-                status,
-                carrier,
-                tracking,
-                product_variant,
-            )?)?,
+                address_json,
+            } => output(
+                &service.update_shipment(
+                    assignment,
+                    status,
+                    carrier,
+                    tracking,
+                    product_variant,
+                    address_json
+                        .as_deref()
+                        .map(serde_json::from_str::<ShippingAddress>)
+                        .transpose()?,
+                )?,
+            )?,
             ShipmentCommand::List { assignment } => {
                 output(&store.list::<Shipment>("shipment", Some(&assignment), None)?)?
             }
@@ -1223,10 +1248,19 @@ fn run() -> Result<()> {
             }
             RightsCommand::Check {
                 assignment,
+                asset,
                 channel,
+                territory,
                 paid,
                 at,
-            } => output(&service.check_rights(&assignment, &channel, paid, at.as_deref())?)?,
+            } => output(&service.check_rights(
+                &assignment,
+                asset.as_deref(),
+                &channel,
+                territory.as_deref(),
+                paid,
+                at.as_deref(),
+            )?)?,
             RightsCommand::List { assignment } => {
                 output(&store.list::<UsageRights>("usage_rights", Some(&assignment), None)?)?
             }
@@ -1420,6 +1454,7 @@ fn run() -> Result<()> {
                 max_rate_minor,
                 limit,
                 offer_minor,
+                shipping_required,
             } => output(&standalone.launch_campaign(
                 &campaign,
                 &brief,
@@ -1434,6 +1469,7 @@ fn run() -> Result<()> {
                     limit,
                 },
                 offer_minor,
+                shipping_required,
             )?)?,
             StandaloneCommand::ConversationCreate {
                 creator,
@@ -1441,6 +1477,7 @@ fn run() -> Result<()> {
                 brief,
                 offer_minor,
                 currency,
+                shipping_required,
                 message,
             } => output(&standalone.create_conversation(
                 creator,
@@ -1448,6 +1485,7 @@ fn run() -> Result<()> {
                 brief,
                 offer_minor,
                 currency,
+                shipping_required,
                 message,
             )?)?,
             StandaloneCommand::ConversationList {
@@ -1472,10 +1510,9 @@ fn run() -> Result<()> {
                 channel,
                 automated,
             } => output(&standalone.send_message(&id, body, channel, automated)?)?,
-            StandaloneCommand::ConversationAccept {
-                id,
-                shipping_required,
-            } => output(&standalone.accept_conversation(&id, shipping_required)?)?,
+            StandaloneCommand::ConversationAccept { id } => {
+                output(&standalone.accept_conversation(&id)?)?
+            }
             StandaloneCommand::PortalCreate { creator, days } => {
                 output(&standalone.create_portal_access(&creator, days)?)?
             }
@@ -1527,6 +1564,7 @@ fn run() -> Result<()> {
                 asset,
                 platform,
                 channel,
+                territory,
                 post_id,
                 url,
                 paid,
@@ -1537,6 +1575,7 @@ fn run() -> Result<()> {
                 &asset,
                 platform,
                 channel,
+                territory,
                 post_id,
                 url,
                 paid,
@@ -1621,6 +1660,7 @@ fn run() -> Result<()> {
                 let records = store.all_records()?;
                 fs::write(&file, serde_json::to_vec_pretty(&records)?)
                     .with_context(|| format!("cannot write {}", file.display()))?;
+                protect_private_output(&file)?;
                 output(&json!({"exported": records.len(), "file": file}))?;
             }
             StandaloneCommand::Import { file } => {
@@ -1696,4 +1736,18 @@ fn read_input(path: Option<&Path>) -> Result<Vec<u8>> {
             Ok(body)
         }
     }
+}
+
+#[cfg(unix)]
+fn protect_private_output(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mode = u32::from_str_radix("600", "security".len())?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("cannot protect {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn protect_private_output(_path: &Path) -> Result<()> {
+    Ok(())
 }

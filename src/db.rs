@@ -1,4 +1,7 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
@@ -42,6 +45,9 @@ pub struct Store {
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
+        if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            bail!("database path must not be a symbolic link");
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("cannot create {}", parent.display()))?;
@@ -116,6 +122,7 @@ impl Store {
             );
             "#,
         )?;
+        protect_database_files(path)?;
         Ok(Self { db })
     }
 
@@ -520,4 +527,34 @@ impl Store {
             updated_at: row.get("updated_at")?,
         })
     }
+}
+
+#[cfg(unix)]
+fn protect_database_files(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mode = u32::from_str_radix("600", "security".len())?;
+    for target in [
+        path.to_path_buf(),
+        database_sidecar(path, "-wal"),
+        database_sidecar(path, "-shm"),
+    ] {
+        if target.exists() {
+            fs::set_permissions(&target, fs::Permissions::from_mode(mode))
+                .with_context(|| format!("cannot protect {}", target.display()))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn database_sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+#[cfg(not(unix))]
+fn protect_database_files(_path: &Path) -> Result<()> {
+    Ok(())
 }

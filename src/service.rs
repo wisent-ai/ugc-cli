@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 use crate::{
     db::Store,
     model::{
-        Assignment, Brief, Campaign, Connection, Creator, CreatorIdentity, Message, Payment,
-        ProviderCapabilities, Publication, Shipment, Submission, UsageRights,
+        Asset, Assignment, Brief, Campaign, Connection, Creator, CreatorIdentity, Message, Payment,
+        ProviderCapabilities, Publication, Shipment, ShippingAddress, Submission, UsageRights,
     },
 };
 
@@ -86,6 +86,11 @@ impl<'a> UgcService<'a> {
         required("name", &name)?;
         required("brand", &brand)?;
         required("product", &product)?;
+        required("currency", &currency)?;
+        if budget_minor.is_some_and(|budget| budget < i64::default()) {
+            bail!("campaign budget cannot be negative");
+        }
+        let currency = currency.trim().to_ascii_uppercase();
         let now = Store::now();
         let campaign = Campaign {
             id: Store::id(),
@@ -155,6 +160,25 @@ impl<'a> UgcService<'a> {
         rights_requirements: Value,
     ) -> Result<Brief> {
         let _: Campaign = self.store.get("campaign", &campaign_id)?;
+        required("service_type", &service_type)?;
+        required("creative_angle", &creative_angle)?;
+        if duration_min_ms.is_some_and(|duration| duration < i64::default())
+            || duration_max_ms.is_some_and(|duration| duration < i64::default())
+        {
+            bail!("brief durations cannot be negative");
+        }
+        if duration_min_ms
+            .zip(duration_max_ms)
+            .is_some_and(|(minimum, maximum)| minimum > maximum)
+        {
+            bail!("brief minimum duration cannot exceed maximum duration");
+        }
+        if revision_limit.is_some_and(|limit| limit < i64::default()) {
+            bail!("brief revision limit cannot be negative");
+        }
+        if !rights_requirements.is_object() {
+            bail!("brief rights requirements must be a JSON object");
+        }
         let existing: Vec<Brief> = self.store.list("brief", Some(&campaign_id), None)?;
         let version = existing
             .iter()
@@ -231,13 +255,19 @@ impl<'a> UgcService<'a> {
         niches: Vec<String>,
         metadata: Value,
     ) -> Result<Creator> {
+        let email = email.map(|candidate| candidate.trim().to_ascii_lowercase());
+        if email.as_deref().is_some_and(str::is_empty) {
+            bail!("creator email cannot be empty");
+        }
         required("display_name", &display_name)?;
         if let Some(candidate) = &email {
             let existing: Vec<Creator> = self.store.list("creator", None, None)?;
-            if existing
-                .iter()
-                .any(|creator| creator.email.as_deref() == Some(candidate))
-            {
+            if existing.iter().any(|creator| {
+                creator
+                    .email
+                    .as_deref()
+                    .is_some_and(|email| email.eq_ignore_ascii_case(candidate))
+            }) {
                 bail!("creator with email {candidate} already exists");
             }
         }
@@ -268,6 +298,41 @@ impl<'a> UgcService<'a> {
         Ok(creator)
     }
 
+    pub fn verify_creator(&self, id: &str, verified_metadata: Value) -> Result<Creator> {
+        let mut creator: Creator = self.store.get("creator", id)?;
+        let Value::Object(mut metadata) = verified_metadata else {
+            bail!("verified creator metadata must be a JSON object");
+        };
+        if let Some(self_reported) = creator.metadata.get("self_reported").cloned() {
+            metadata.entry("self_reported").or_insert(self_reported);
+        }
+        if let Some(self_reported_identities) =
+            creator.metadata.get("self_reported_identities").cloned()
+        {
+            metadata
+                .entry("self_reported_identities")
+                .or_insert(self_reported_identities);
+        }
+        metadata.insert(
+            "verification_status".into(),
+            Value::String("verified".into()),
+        );
+        creator.metadata = Value::Object(metadata);
+        creator.updated_at = Store::now();
+        self.store.put(
+            "creator",
+            &creator.id,
+            None,
+            None,
+            &creator.status,
+            creator.email.as_deref(),
+            &creator,
+            &creator.created_at,
+        )?;
+        self.audit("creator", id, "verified", json!({}))?;
+        Ok(creator)
+    }
+
     pub fn add_creator_identity(
         &self,
         creator_id: String,
@@ -277,6 +342,10 @@ impl<'a> UgcService<'a> {
         profile_url: Option<String>,
         metadata: Value,
     ) -> Result<CreatorIdentity> {
+        required("platform", &platform)?;
+        required("external_creator_id", &external_creator_id)?;
+        let platform = platform.trim().to_ascii_lowercase();
+        let external_creator_id = external_creator_id.trim().to_string();
         let _: Creator = self.store.get("creator", &creator_id)?;
         if let Some(connection) = &connection_id {
             let _: Connection = self.store.get("connection", connection)?;
@@ -325,7 +394,7 @@ impl<'a> UgcService<'a> {
         shipping_required: bool,
         revision_limit: Option<i64>,
     ) -> Result<Assignment> {
-        let _: Campaign = self.store.get("campaign", &campaign_id)?;
+        let campaign: Campaign = self.store.get("campaign", &campaign_id)?;
         let brief: Brief = self.store.get("brief", &brief_id)?;
         if brief.campaign_id != campaign_id {
             bail!("brief does not belong to campaign");
@@ -339,6 +408,39 @@ impl<'a> UgcService<'a> {
         }
         if !matches!(payment_owner.as_str(), "provider" | "echo" | "none") {
             bail!("payment_owner must be provider, echo, or none");
+        }
+        required("currency", &currency)?;
+        if !currency.eq_ignore_ascii_case(&campaign.currency) {
+            bail!("assignment currency must match campaign currency");
+        }
+        let currency = campaign.currency.clone();
+        if compensation_minor.is_some_and(|amount| amount < i64::default()) {
+            bail!("assignment compensation cannot be negative");
+        }
+        if revision_limit.is_some_and(|limit| limit < i64::default()) {
+            bail!("assignment revision limit cannot be negative");
+        }
+        if let (Some(budget), Some(compensation)) = (campaign.budget_minor, compensation_minor) {
+            let existing: Vec<Assignment> =
+                self.store.list("assignment", Some(&campaign_id), None)?;
+            let mut committed = i64::default();
+            for assignment in existing
+                .into_iter()
+                .filter(|assignment| !matches!(assignment.status.as_str(), "cancelled" | "failed"))
+            {
+                if let Some(amount) = assignment.compensation_minor {
+                    let Some(total) = committed.checked_add(amount) else {
+                        bail!("campaign committed compensation overflow");
+                    };
+                    committed = total;
+                }
+            }
+            let Some(total) = committed.checked_add(compensation) else {
+                bail!("campaign committed compensation overflow");
+            };
+            if total > budget {
+                bail!("assignment compensation would exceed campaign budget");
+            }
         }
         let now = Store::now();
         let assignment = Assignment {
@@ -416,6 +518,7 @@ impl<'a> UgcService<'a> {
         carrier: Option<String>,
         tracking_number: Option<String>,
         product_variant: Option<String>,
+        shipping_address: Option<ShippingAddress>,
     ) -> Result<Shipment> {
         let assignment: Assignment = self.store.get("assignment", &assignment_id)?;
         if !assignment.shipping_required {
@@ -430,6 +533,7 @@ impl<'a> UgcService<'a> {
             carrier: None,
             tracking_number: None,
             product_variant: None,
+            shipping_address: None,
             shipped_at: None,
             delivered_at: None,
             created_at: now.clone(),
@@ -440,6 +544,29 @@ impl<'a> UgcService<'a> {
         shipment.carrier = carrier.or(shipment.carrier);
         shipment.tracking_number = tracking_number.or(shipment.tracking_number);
         shipment.product_variant = product_variant.or(shipment.product_variant);
+        shipment.shipping_address = shipping_address.or(shipment.shipping_address);
+        if let Some(address) = &shipment.shipping_address {
+            required("shipping recipient", &address.recipient_name)?;
+            required("shipping address line", &address.line1)?;
+            required("shipping city", &address.city)?;
+            required("shipping postal code", &address.postal_code)?;
+            required("shipping country", &address.country)?;
+        }
+        if status == "ready_to_ship" && shipment.shipping_address.is_none() {
+            bail!("shipping address is required before shipment is ready");
+        }
+        if status == "shipped"
+            && (shipment
+                .carrier
+                .as_deref()
+                .is_none_or(|carrier| carrier.trim().is_empty())
+                || shipment
+                    .tracking_number
+                    .as_deref()
+                    .is_none_or(|tracking| tracking.trim().is_empty()))
+        {
+            bail!("carrier and tracking number are required before shipment is shipped");
+        }
         shipment.updated_at = now;
         if status == "shipped" {
             shipment.shipped_at = Some(Store::now());
@@ -471,9 +598,20 @@ impl<'a> UgcService<'a> {
         assignment_id: String,
         external_submission_id: Option<String>,
     ) -> Result<Submission> {
+        if let Some(external_id) = external_submission_id.as_deref() {
+            if let Some(existing) = self
+                .store
+                .find_external::<Submission>("submission", external_id)?
+            {
+                if existing.assignment_id == assignment_id {
+                    return Ok(existing);
+                }
+                bail!("external submission ID was already used for another assignment");
+            }
+        }
         let assignment: Assignment = self.store.get("assignment", &assignment_id)?;
-        if matches!(assignment.status.as_str(), "cancelled" | "completed") {
-            bail!("cannot submit to assignment in {} state", assignment.status);
+        if assignment.status != "in_production" {
+            bail!("assignment must be in production before submission");
         }
         let existing: Vec<Submission> =
             self.store.list("submission", Some(&assignment_id), None)?;
@@ -483,6 +621,14 @@ impl<'a> UgcService<'a> {
             .max()
             .unwrap_or("".len() as i64)
             + "r".len() as i64;
+        if let Some(limit) = assignment.revision_limit {
+            let Some(maximum_revision) = limit.checked_add("r".len() as i64) else {
+                bail!("assignment revision limit overflow");
+            };
+            if revision > maximum_revision {
+                bail!("assignment revision limit has been reached");
+            }
+        }
         let submission = Submission {
             id: Store::id(),
             assignment_id: assignment_id.clone(),
@@ -522,6 +668,26 @@ impl<'a> UgcService<'a> {
         feedback: Option<String>,
     ) -> Result<Submission> {
         let mut submission: Submission = self.store.get("submission", id)?;
+        if status == "approved" && !matches!(submission.qc_status.as_deref(), Some("PASS" | "WARN"))
+        {
+            bail!("submission cannot be approved before technical QC passes");
+        }
+        if matches!(status, "revision_requested" | "rejected")
+            && feedback
+                .as_deref()
+                .is_none_or(|feedback| feedback.trim().is_empty())
+        {
+            bail!("review feedback is required for revision or rejection");
+        }
+        if status == "revision_requested" {
+            let assignment: Assignment = self.store.get("assignment", &submission.assignment_id)?;
+            if assignment
+                .revision_limit
+                .is_some_and(|limit| submission.revision > limit)
+            {
+                bail!("assignment revision limit has been reached");
+            }
+        }
         ensure_transition("submission", &submission.status, status)?;
         submission.status = status.into();
         submission.feedback = feedback;
@@ -547,6 +713,7 @@ impl<'a> UgcService<'a> {
         )?;
         if status == "revision_requested" {
             let assignment: Assignment = self.store.get("assignment", &submission.assignment_id)?;
+            self.assignment_status(&assignment.id, "revision_requested")?;
             if let Some(connection) = assignment.connection_id {
                 self.store.enqueue(
                     "request_revision",
@@ -557,13 +724,35 @@ impl<'a> UgcService<'a> {
                 )?;
             }
         }
+        if status == "rejected" {
+            self.assignment_status(&submission.assignment_id, "failed")?;
+        }
         Ok(submission)
     }
 
     pub fn grant_rights(&self, rights: UsageRights) -> Result<UsageRights> {
         let _: Assignment = self.store.get("assignment", &rights.assignment_id)?;
+        required("rights owner", &rights.owner)?;
+        required("license type", &rights.license_type)?;
+        let starts_at = DateTime::parse_from_rfc3339(&rights.starts_at)?.with_timezone(&Utc);
+        if let Some(expires_at) = &rights.expires_at {
+            let expires_at = DateTime::parse_from_rfc3339(expires_at)?.with_timezone(&Utc);
+            if expires_at <= starts_at {
+                bail!("usage rights expiration must be after start");
+            }
+        }
         if let Some(asset_id) = &rights.asset_id {
-            let _: Value = self.store.get("asset", asset_id)?;
+            let asset: Asset = self.store.get("asset", asset_id)?;
+            let Some(submission_id) = asset.submission_id else {
+                bail!("rights asset must belong to a submission");
+            };
+            let submission: Submission = self.store.get("submission", &submission_id)?;
+            if submission.assignment_id != rights.assignment_id {
+                bail!("rights asset does not belong to assignment");
+            }
+            if submission.status != "approved" {
+                bail!("rights asset submission must be approved");
+            }
         }
         self.store.put(
             "usage_rights",
@@ -587,10 +776,23 @@ impl<'a> UgcService<'a> {
     pub fn check_rights(
         &self,
         assignment_id: &str,
+        asset_id: Option<&str>,
         channel: &str,
+        territory: Option<&str>,
         paid: bool,
         at: Option<&str>,
     ) -> Result<Value> {
+        let _: Assignment = self.store.get("assignment", assignment_id)?;
+        if let Some(asset_id) = asset_id {
+            let asset: Asset = self.store.get("asset", asset_id)?;
+            let Some(submission_id) = asset.submission_id else {
+                bail!("rights check asset must belong to a submission");
+            };
+            let submission: Submission = self.store.get("submission", &submission_id)?;
+            if submission.assignment_id != assignment_id {
+                bail!("rights check asset does not belong to assignment");
+            }
+        }
         let rights: Vec<UsageRights> =
             self.store
                 .list("usage_rights", Some(assignment_id), Some("active"))?;
@@ -601,30 +803,44 @@ impl<'a> UgcService<'a> {
         let mut reasons = Vec::new();
         let mut allowed = false;
         for item in rights {
-            if item
-                .starts_at
-                .parse::<DateTime<Utc>>()
-                .map(|start| start > instant)
-                .unwrap_or(false)
-            {
+            if item.asset_id.is_some() && item.asset_id.as_deref() != asset_id {
+                reasons.push("asset not licensed".to_string());
+                continue;
+            }
+            let starts_at = DateTime::parse_from_rfc3339(&item.starts_at)?.with_timezone(&Utc);
+            if starts_at > instant {
                 reasons.push("license has not started".to_string());
                 continue;
             }
-            if item
-                .expires_at
-                .as_deref()
-                .and_then(|value| value.parse::<DateTime<Utc>>().ok())
-                .map(|end| end <= instant)
-                .unwrap_or(false)
-            {
-                reasons.push("license expired".to_string());
-                continue;
+            if let Some(expires_at) = &item.expires_at {
+                let expires_at = DateTime::parse_from_rfc3339(expires_at)?.with_timezone(&Utc);
+                if expires_at <= instant {
+                    reasons.push("license expired".to_string());
+                    continue;
+                }
             }
             if !item.channels.is_empty()
-                && !item.channels.iter().any(|candidate| candidate == channel)
+                && !item
+                    .channels
+                    .iter()
+                    .any(|candidate| candidate.eq_ignore_ascii_case(channel))
             {
                 reasons.push(format!("channel {channel} not licensed"));
                 continue;
+            }
+            if !item.territories.is_empty() {
+                let Some(territory) = territory else {
+                    reasons.push("territory is required by the license".into());
+                    continue;
+                };
+                if !item
+                    .territories
+                    .iter()
+                    .any(|candidate| candidate.eq_ignore_ascii_case(territory))
+                {
+                    reasons.push(format!("territory {territory} not licensed"));
+                    continue;
+                }
             }
             if paid && !item.paid_ads_allowed {
                 reasons.push("paid ads not licensed".into());
@@ -648,9 +864,15 @@ impl<'a> UgcService<'a> {
         if !allowed && reasons.is_empty() {
             reasons.push("no active usage rights".into());
         }
-        Ok(
-            json!({"allowed": allowed, "assignment_id": assignment_id, "channel": channel, "paid": paid, "reasons": reasons}),
-        )
+        Ok(json!({
+            "allowed": allowed,
+            "assignment_id": assignment_id,
+            "asset_id": asset_id,
+            "channel": channel,
+            "territory": territory,
+            "paid": paid,
+            "reasons": reasons,
+        }))
     }
 
     pub fn create_payment(
@@ -664,6 +886,20 @@ impl<'a> UgcService<'a> {
         let assignment: Assignment = self.store.get("assignment", &assignment_id)?;
         if assignment.payment_owner == "none" {
             bail!("assignment payment owner is none");
+        }
+        required("currency", &currency)?;
+        if amount_minor <= i64::default() {
+            bail!("payment amount must be positive");
+        }
+        if !currency.eq_ignore_ascii_case(&assignment.currency) {
+            bail!("payment currency must match assignment currency");
+        }
+        let currency = assignment.currency.clone();
+        if assignment
+            .compensation_minor
+            .is_some_and(|compensation| compensation != amount_minor)
+        {
+            bail!("payment amount must match assignment compensation");
         }
         if let Some(submission) = &submission_id {
             let submission: Submission = self.store.get("submission", submission)?;
