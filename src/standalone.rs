@@ -506,6 +506,12 @@ impl<'a> StandaloneService<'a> {
         )?;
         conversation.last_inbound_at = Some(inbound.created_at.clone());
         conversation.updated_at = Store::now();
+        conversation.next_action_at = if matches!(intent.as_str(), "pricing" | "question" | "other")
+        {
+            Some(Store::now())
+        } else {
+            None
+        };
         match intent.as_str() {
             "opt_out" => {
                 conversation.status = "opted_out".into();
@@ -1619,7 +1625,14 @@ impl<'a> StandaloneService<'a> {
         let publications: Vec<StandalonePublication> =
             self.store.list("standalone_publication", None, None)?;
         let attention = json!({
-            "unanswered_conversations": conversations.iter().filter(|item| item.last_inbound_at > item.last_outbound_at && item.status == "open").count(),
+            "unanswered_conversations": conversations.iter().filter(|item| {
+                item.last_inbound_at > item.last_outbound_at
+                    && !matches!(item.status.as_str(), "closed" | "declined" | "opted_out")
+            }).count(),
+            "operator_follow_ups": conversations.iter().filter(|item| {
+                item.next_action_at.is_some()
+                    && !matches!(item.status.as_str(), "closed" | "declined" | "opted_out")
+            }).count(),
             "pending_reviews": submissions.iter().filter(|item| item.status == "pending_review").count(),
             "payments_to_release": payments.iter().filter(|item| item.status == "pending").count(),
             "payments_to_settle": payments.iter().filter(|item| item.status == "processing").count(),
@@ -1701,6 +1714,9 @@ impl<'a> StandaloneService<'a> {
         )?;
         if direction == "outbound" {
             conversation.last_outbound_at = Some(message.created_at.clone());
+            if !automated {
+                conversation.next_action_at = None;
+            }
         }
         if direction == "inbound" {
             conversation.last_inbound_at = Some(message.created_at.clone());

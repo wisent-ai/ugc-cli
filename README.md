@@ -377,7 +377,7 @@ It can advance campaign state, move shipped physical-product assignments into pr
 ugc-cli standalone dashboard
 ```
 
-The dashboard reports unanswered conversations, pending reviews, payments awaiting release or settlement, and publications missing metrics.
+The dashboard reports unanswered conversations, pricing/questions requiring operator follow-up, pending reviews, payments awaiting release or settlement, and publications missing metrics. A non-automated operator reply clears the follow-up flag.
 
 ### Backup and restore
 
