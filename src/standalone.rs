@@ -674,6 +674,7 @@ impl<'a> StandaloneService<'a> {
             None,
             conversation.shipping_required,
             brief.revision_limit,
+            Some(format!("local-conversation:{conversation_id}")),
         )?;
         let assignment = service.assignment_status(&assignment.id, "accepted")?;
         conversation.assignment_id = Some(assignment.id.clone());

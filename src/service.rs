@@ -446,6 +446,7 @@ impl<'a> UgcService<'a> {
         deadline: Option<String>,
         shipping_required: bool,
         revision_limit: Option<i64>,
+        external_assignment_id: Option<String>,
     ) -> Result<Assignment> {
         let campaign: Campaign = self.store.get("campaign", &campaign_id)?;
         let brief: Brief = self.store.get("brief", &brief_id)?;
@@ -472,6 +473,35 @@ impl<'a> UgcService<'a> {
         }
         if revision_limit.is_some_and(|limit| limit < i64::default()) {
             bail!("assignment revision limit cannot be negative");
+        }
+        if external_assignment_id
+            .as_deref()
+            .is_some_and(|external| external.trim().is_empty())
+        {
+            bail!("external assignment ID cannot be empty");
+        }
+        let external_assignment_id =
+            external_assignment_id.map(|external| external.trim().to_string());
+        if let Some(external) = external_assignment_id.as_deref() {
+            if let Some(existing) = self
+                .store
+                .find_external::<Assignment>("assignment", external)?
+            {
+                let same_assignment = existing.campaign_id == campaign_id
+                    && existing.brief_id == brief_id
+                    && existing.creator_id == creator_id
+                    && existing.connection_id == connection_id
+                    && existing.compensation_minor == compensation_minor
+                    && existing.currency.eq_ignore_ascii_case(&currency)
+                    && existing.payment_owner == payment_owner
+                    && existing.deadline == deadline
+                    && existing.shipping_required == shipping_required
+                    && existing.revision_limit == revision_limit;
+                if same_assignment {
+                    return Ok(existing);
+                }
+                bail!("external assignment ID was already used: {external}");
+            }
         }
         if let (Some(budget), Some(compensation)) = (campaign.budget_minor, compensation_minor) {
             let existing: Vec<Assignment> =
@@ -502,7 +532,7 @@ impl<'a> UgcService<'a> {
             brief_id,
             creator_id,
             connection_id,
-            external_assignment_id: None,
+            external_assignment_id: external_assignment_id.clone(),
             status: "invited".into(),
             compensation_minor,
             currency,
@@ -521,7 +551,7 @@ impl<'a> UgcService<'a> {
             Some(&campaign_id),
             Some(&assignment.creator_id),
             &assignment.status,
-            None,
+            external_assignment_id.as_deref(),
             &assignment,
             &assignment.created_at,
         )?;

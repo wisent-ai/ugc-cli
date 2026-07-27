@@ -113,7 +113,7 @@ ugc-cli standalone conversation-send CONVERSATION_ID \
 
 Inbound messages are classified as interested, accepted, pricing, question, submitted, declined, opt-out, or other. `STOP`, unsubscribe, and equivalent Polish phrases close the conversation without another automated reply.
 
-Accepting a conversation creates the standalone assignment. Add `--shipping-required` for a physical-product campaign:
+Accepting a conversation creates one idempotent, conversation-scoped standalone assignment, so a retry cannot duplicate the commitment or campaign budget reservation. Add `--shipping-required` for a physical-product campaign:
 
 ```bash
 ugc-cli standalone conversation-accept CONVERSATION_ID --shipping-required

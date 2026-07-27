@@ -289,6 +289,8 @@ enum AssignmentCommand {
         shipping_required: bool,
         #[arg(long)]
         revision_limit: Option<i64>,
+        #[arg(long)]
+        external_id: Option<String>,
     },
     List {
         #[arg(long)]
@@ -1102,6 +1104,7 @@ fn run() -> Result<()> {
                 deadline,
                 shipping_required,
                 revision_limit,
+                external_id,
             } => output(&service.create_assignment(
                 campaign,
                 brief,
@@ -1113,6 +1116,7 @@ fn run() -> Result<()> {
                 deadline,
                 shipping_required,
                 revision_limit,
+                external_id,
             )?)?,
             AssignmentCommand::List { campaign, status } => output(&store.list::<Assignment>(
                 "assignment",
