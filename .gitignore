@@ -1,0 +1,12 @@
+/target/
+.env
+*.db
+*.db-shm
+*.db-wal
+.ugc/
+.DS_Store
+
+
+# Added by cargo
+
+/target
