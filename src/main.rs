@@ -6,6 +6,8 @@ mod provider;
 mod secret;
 mod server;
 mod service;
+mod standalone;
+mod standalone_server;
 mod sync;
 
 use std::{
@@ -20,13 +22,14 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{
-    db::Store,
+    db::{Record, Store},
     media::QcPolicy,
     model::{
-        Assignment, Brief, Campaign, Connection, Creator, CreatorIdentity, Message, Payment,
-        Publication, Shipment, Submission, UsageRights,
+        Assignment, Brief, Campaign, Connection, Creator, CreatorIdentity, DiscoveryQuery, Message,
+        Payment, Publication, Shipment, Submission, UsageRights,
     },
     service::UgcService,
+    standalone::{CreatorSeed, MetricInput, StandaloneService},
 };
 
 #[derive(Parser)]
@@ -64,6 +67,7 @@ enum Command {
     Weles(WelesArgs),
     Skarbiec(SkarbiecArgs),
     Brama(BramaArgs),
+    Standalone(StandaloneArgs),
     Audit(AuditArgs),
     Diagnostics,
 }
@@ -653,6 +657,248 @@ enum BramaCommand {
 }
 
 #[derive(Args)]
+struct StandaloneArgs {
+    #[command(subcommand)]
+    command: StandaloneCommand,
+}
+
+#[derive(Subcommand)]
+enum StandaloneCommand {
+    ImportCreators {
+        file: PathBuf,
+    },
+    Discover {
+        #[arg(long)]
+        campaign: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        markets: Vec<String>,
+        #[arg(long, value_delimiter = ',')]
+        languages: Vec<String>,
+        #[arg(long, value_delimiter = ',')]
+        niches: Vec<String>,
+        #[arg(long, value_delimiter = ',')]
+        channels: Vec<String>,
+        #[arg(long)]
+        min_followers: Option<i64>,
+        #[arg(long)]
+        max_rate_minor: Option<i64>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    Launch {
+        #[arg(long)]
+        campaign: String,
+        #[arg(long)]
+        brief: String,
+        #[arg(long, value_delimiter = ',')]
+        markets: Vec<String>,
+        #[arg(long, value_delimiter = ',')]
+        languages: Vec<String>,
+        #[arg(long, value_delimiter = ',')]
+        niches: Vec<String>,
+        #[arg(long, value_delimiter = ',')]
+        channels: Vec<String>,
+        #[arg(long)]
+        min_followers: Option<i64>,
+        #[arg(long)]
+        max_rate_minor: Option<i64>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        offer_minor: Option<i64>,
+    },
+    ConversationCreate {
+        #[arg(long)]
+        creator: String,
+        #[arg(long)]
+        campaign: Option<String>,
+        #[arg(long)]
+        brief: Option<String>,
+        #[arg(long)]
+        offer_minor: Option<i64>,
+        #[arg(long, default_value = "USD")]
+        currency: String,
+        #[arg(long)]
+        message: Option<String>,
+    },
+    ConversationList {
+        #[arg(long)]
+        campaign: Option<String>,
+        #[arg(long)]
+        creator: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    ConversationMessages {
+        id: String,
+    },
+    ConversationReceive {
+        id: String,
+        #[arg(long)]
+        body: String,
+        #[arg(long, default_value = "local_portal")]
+        channel: String,
+        #[arg(long)]
+        external_id: Option<String>,
+    },
+    ConversationSend {
+        id: String,
+        #[arg(long)]
+        body: String,
+        #[arg(long, default_value = "local_portal")]
+        channel: String,
+        #[arg(long)]
+        automated: bool,
+    },
+    ConversationAccept {
+        id: String,
+        #[arg(long)]
+        shipping_required: bool,
+    },
+    PortalCreate {
+        #[arg(long)]
+        creator: String,
+        #[arg(long)]
+        days: Option<i64>,
+    },
+    PortalRevoke {
+        id: String,
+    },
+    LedgerFund {
+        #[arg(long)]
+        assignment: String,
+        #[arg(long)]
+        amount_minor: i64,
+        #[arg(long, default_value = "USD")]
+        currency: String,
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
+    LedgerRelease {
+        #[arg(long)]
+        payment: String,
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
+    LedgerSettle {
+        #[arg(long)]
+        payment: String,
+        #[arg(long)]
+        reference: String,
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
+    LedgerReverse {
+        id: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
+    LedgerBalance {
+        #[arg(long)]
+        account: String,
+        #[arg(long, default_value = "USD")]
+        currency: String,
+    },
+    LedgerList {
+        #[arg(long)]
+        assignment: Option<String>,
+    },
+    PublicationAdd {
+        #[arg(long)]
+        assignment: String,
+        #[arg(long)]
+        submission: String,
+        #[arg(long)]
+        asset: String,
+        #[arg(long)]
+        platform: String,
+        #[arg(long)]
+        channel: String,
+        #[arg(long)]
+        post_id: Option<String>,
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        paid: bool,
+        #[arg(long)]
+        published_at: Option<String>,
+    },
+    MetricsCapture {
+        #[arg(long)]
+        publication: String,
+        #[arg(long)]
+        views: i64,
+        #[arg(long)]
+        likes: i64,
+        #[arg(long)]
+        comments: i64,
+        #[arg(long)]
+        shares: i64,
+        #[arg(long)]
+        saves: i64,
+        #[arg(long)]
+        clicks: i64,
+        #[arg(long)]
+        conversions: i64,
+        #[arg(long)]
+        revenue_minor: i64,
+        #[arg(long)]
+        spend_minor: i64,
+        #[arg(long, default_value = "USD")]
+        currency: String,
+        #[arg(long, default_value = "manual")]
+        source: String,
+        #[arg(long)]
+        captured_at: Option<String>,
+    },
+    AttributionAdd {
+        #[arg(long)]
+        publication: String,
+        #[arg(long)]
+        event_type: String,
+        #[arg(long)]
+        external_id: Option<String>,
+        #[arg(long)]
+        value_minor: Option<i64>,
+        #[arg(long)]
+        currency: Option<String>,
+        #[arg(long, default_value = "{}")]
+        metadata: String,
+        #[arg(long)]
+        occurred_at: Option<String>,
+    },
+    Performance {
+        #[arg(long)]
+        campaign: String,
+    },
+    Workflow {
+        #[arg(long)]
+        campaign: String,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        release_payments: bool,
+    },
+    Dashboard,
+    Serve {
+        #[arg(long, default_value = "127.0.0.1:8765")]
+        bind: String,
+        #[arg(long)]
+        operator_token_source: Option<String>,
+        #[arg(long)]
+        allow_registration: bool,
+    },
+    Export {
+        file: PathBuf,
+    },
+    Import {
+        file: PathBuf,
+    },
+}
+
+#[derive(Args)]
 struct AuditArgs {
     #[arg(long)]
     kind: Option<String>,
@@ -673,6 +919,10 @@ fn run() -> Result<()> {
     let asset_dir = cli.asset_dir.unwrap_or_else(default_asset_dir);
     let store = Store::open(&db_path)?;
     let service = UgcService {
+        store: &store,
+        actor: &cli.actor,
+    };
+    let standalone = StandaloneService {
         store: &store,
         actor: &cli.actor,
     };
@@ -1130,6 +1380,255 @@ fn run() -> Result<()> {
                     &subject,
                     instruction.as_deref(),
                 )?)?;
+            }
+        },
+        Command::Standalone(args) => match args.command {
+            StandaloneCommand::ImportCreators { file } => {
+                let seeds: Vec<CreatorSeed> = serde_json::from_slice(
+                    &fs::read(&file).with_context(|| format!("cannot read {}", file.display()))?,
+                )
+                .context("creator import must be a JSON array")?;
+                output(&standalone.import_creators(seeds)?)?;
+            }
+            StandaloneCommand::Discover {
+                campaign,
+                markets,
+                languages,
+                niches,
+                channels,
+                min_followers,
+                max_rate_minor,
+                limit,
+            } => output(&standalone.discover(DiscoveryQuery {
+                campaign_id: campaign,
+                markets,
+                languages,
+                niches,
+                channels,
+                min_followers,
+                max_rate_minor,
+                limit,
+            })?)?,
+            StandaloneCommand::Launch {
+                campaign,
+                brief,
+                markets,
+                languages,
+                niches,
+                channels,
+                min_followers,
+                max_rate_minor,
+                limit,
+                offer_minor,
+            } => output(&standalone.launch_campaign(
+                &campaign,
+                &brief,
+                DiscoveryQuery {
+                    campaign_id: Some(campaign.clone()),
+                    markets,
+                    languages,
+                    niches,
+                    channels,
+                    min_followers,
+                    max_rate_minor,
+                    limit,
+                },
+                offer_minor,
+            )?)?,
+            StandaloneCommand::ConversationCreate {
+                creator,
+                campaign,
+                brief,
+                offer_minor,
+                currency,
+                message,
+            } => output(&standalone.create_conversation(
+                creator,
+                campaign,
+                brief,
+                offer_minor,
+                currency,
+                message,
+            )?)?,
+            StandaloneCommand::ConversationList {
+                campaign,
+                creator,
+                status,
+            } => output(&standalone.list_conversations(
+                campaign.as_deref(),
+                creator.as_deref(),
+                status.as_deref(),
+            )?)?,
+            StandaloneCommand::ConversationMessages { id } => output(&standalone.messages(&id)?)?,
+            StandaloneCommand::ConversationReceive {
+                id,
+                body,
+                channel,
+                external_id,
+            } => output(&standalone.receive_message(&id, body, channel, external_id)?)?,
+            StandaloneCommand::ConversationSend {
+                id,
+                body,
+                channel,
+                automated,
+            } => output(&standalone.send_message(&id, body, channel, automated)?)?,
+            StandaloneCommand::ConversationAccept {
+                id,
+                shipping_required,
+            } => output(&standalone.accept_conversation(&id, shipping_required)?)?,
+            StandaloneCommand::PortalCreate { creator, days } => {
+                output(&standalone.create_portal_access(&creator, days)?)?
+            }
+            StandaloneCommand::PortalRevoke { id } => output(&standalone.revoke_portal(&id)?)?,
+            StandaloneCommand::LedgerFund {
+                assignment,
+                amount_minor,
+                currency,
+                idempotency_key,
+            } => output(&standalone.fund_escrow(
+                &assignment,
+                amount_minor,
+                currency,
+                idempotency_key.unwrap_or_else(Store::id),
+            )?)?,
+            StandaloneCommand::LedgerRelease {
+                payment,
+                idempotency_key,
+            } => output(
+                &standalone.release_payment(&payment, idempotency_key.unwrap_or_else(Store::id))?,
+            )?,
+            StandaloneCommand::LedgerSettle {
+                payment,
+                reference,
+                idempotency_key,
+            } => output(&standalone.settle_offline(
+                &payment,
+                reference,
+                idempotency_key.unwrap_or_else(Store::id),
+            )?)?,
+            StandaloneCommand::LedgerReverse {
+                id,
+                reason,
+                idempotency_key,
+            } => output(&standalone.reverse_transfer(
+                &id,
+                reason,
+                idempotency_key.unwrap_or_else(Store::id),
+            )?)?,
+            StandaloneCommand::LedgerBalance { account, currency } => {
+                output(&standalone.balance(&account, &currency)?)?
+            }
+            StandaloneCommand::LedgerList { assignment } => {
+                output(&standalone.ledger(assignment.as_deref())?)?
+            }
+            StandaloneCommand::PublicationAdd {
+                assignment,
+                submission,
+                asset,
+                platform,
+                channel,
+                post_id,
+                url,
+                paid,
+                published_at,
+            } => output(&standalone.add_publication(
+                &assignment,
+                &submission,
+                &asset,
+                platform,
+                channel,
+                post_id,
+                url,
+                paid,
+                published_at,
+            )?)?,
+            StandaloneCommand::MetricsCapture {
+                publication,
+                views,
+                likes,
+                comments,
+                shares,
+                saves,
+                clicks,
+                conversions,
+                revenue_minor,
+                spend_minor,
+                currency,
+                source,
+                captured_at,
+            } => output(&standalone.capture_metrics(
+                &publication,
+                MetricInput {
+                    views,
+                    likes,
+                    comments,
+                    shares,
+                    saves,
+                    clicks,
+                    conversions,
+                    revenue_minor,
+                    spend_minor,
+                    currency,
+                    source,
+                    captured_at,
+                },
+            )?)?,
+            StandaloneCommand::AttributionAdd {
+                publication,
+                event_type,
+                external_id,
+                value_minor,
+                currency,
+                metadata,
+                occurred_at,
+            } => output(&standalone.add_attribution(
+                &publication,
+                event_type,
+                external_id,
+                value_minor,
+                currency,
+                parse_json(&metadata)?,
+                occurred_at,
+            )?)?,
+            StandaloneCommand::Performance { campaign } => {
+                output(&standalone.performance_report(&campaign)?)?
+            }
+            StandaloneCommand::Workflow {
+                campaign,
+                apply,
+                release_payments,
+            } => output(&standalone.advance_workflow(&campaign, apply, release_payments)?)?,
+            StandaloneCommand::Dashboard => output(&standalone.dashboard()?)?,
+            StandaloneCommand::Serve {
+                bind,
+                operator_token_source,
+                allow_registration,
+            } => {
+                let operator_token = operator_token_source
+                    .as_deref()
+                    .map(secret::read)
+                    .transpose()?;
+                standalone_server::serve(
+                    &store,
+                    &asset_dir,
+                    &bind,
+                    &cli.actor,
+                    operator_token,
+                    allow_registration,
+                )?;
+            }
+            StandaloneCommand::Export { file } => {
+                let records = store.all_records()?;
+                fs::write(&file, serde_json::to_vec_pretty(&records)?)
+                    .with_context(|| format!("cannot write {}", file.display()))?;
+                output(&json!({"exported": records.len(), "file": file}))?;
+            }
+            StandaloneCommand::Import { file } => {
+                let records: Vec<Record> = serde_json::from_slice(
+                    &fs::read(&file).with_context(|| format!("cannot read {}", file.display()))?,
+                )
+                .context("standalone import must be a record export JSON array")?;
+                output(&store.import_records(&records)?)?;
             }
         },
         Command::Audit(args) => {

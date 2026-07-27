@@ -39,6 +39,328 @@ export UGC_ASSET_DIR="$PWD/.ugc/assets"
 
 CLI-level `--db` and `--asset-dir` override environment defaults.
 
+## Standalone mode: complete local workflow
+
+Standalone mode requires no creator marketplace, Weles, Brama, Skarbiec, Stripe, email provider, hosted database, or external API. SQLite is the system of record, assets stay in the local content-addressed library, conversations use the local creator portal, payouts use the internal escrow ledger plus an operator-recorded offline settlement, and publication metrics can be entered locally.
+
+What works locally:
+
+- creator-directory JSON import, filtering, scoring, and campaign matching
+- deterministic outreach and two-way conversation threads
+- intent classification, opt-out handling, and safe automatic replies
+- one-time creator portal capability links
+- offer acceptance and assignment creation
+- creator submission from a local media path
+- asset hashing, technical QC, human review, revisions, and rights gates
+- immutable idempotent escrow transfers and offline-settlement references
+- publication registration, cumulative metric snapshots, attribution events, and campaign performance reports
+- deterministic workflow advancement with explicit blockers
+- local operator HTTP API, creator HTML portal, JSON export/import, audit, and dashboard
+
+### Local creator directory
+
+Import the bundled example or a JSON array using the same schema:
+
+```bash
+ugc-cli standalone import-creators examples/creators.json
+
+ugc-cli standalone discover \
+  --markets US \
+  --languages en \
+  --niches beauty \
+  --channels instagram,tiktok
+```
+
+Each creator can carry local scoring evidence in `metadata`: `followers`, `engagement_rate`, `completed_campaigns`, `response_rate`, `portfolio_count`, `base_rate_minor`, and `channels`. Numeric values may be JSON numbers or numeric strings. Hard filters run before scoring, and the result explains matched and missing signals.
+
+### Create and launch a campaign
+
+Create a campaign and approved brief with the regular `campaign` and `brief` commands. Then launch local discovery and outreach:
+
+```bash
+ugc-cli standalone launch \
+  --campaign CAMPAIGN_ID \
+  --brief APPROVED_BRIEF_ID \
+  --niches beauty \
+  --channels instagram \
+  --offer-minor 25000 \
+  --limit 10
+```
+
+Launch performs these operations without an external integration:
+
+1. scores the local creator directory,
+2. skips creators already contacted for the campaign,
+3. creates a canonical conversation and deterministic outreach message,
+4. creates an expiring creator portal token,
+5. returns every conversation and portal token as JSON.
+
+Inspect or continue a thread:
+
+```bash
+ugc-cli standalone conversation-list --campaign CAMPAIGN_ID
+ugc-cli standalone conversation-messages CONVERSATION_ID
+
+ugc-cli standalone conversation-receive CONVERSATION_ID \
+  --body 'I am interested. What is the rate?'
+
+ugc-cli standalone conversation-send CONVERSATION_ID \
+  --body 'The approved offer is 25000 USD minor units.'
+```
+
+Inbound messages are classified as interested, accepted, pricing, question, submitted, declined, opt-out, or other. `STOP`, unsubscribe, and equivalent Polish phrases close the conversation without another automated reply.
+
+Accepting a conversation creates the standalone assignment:
+
+```bash
+ugc-cli standalone conversation-accept CONVERSATION_ID
+```
+
+### Local creator portal and operator API
+
+Start the single-machine service:
+
+```bash
+ugc-cli standalone serve
+```
+
+To let new creators enroll themselves locally:
+
+```bash
+ugc-cli standalone serve --allow-registration
+```
+
+The enrollment form is then available at `http://127.0.0.1:8765/register`. Registration requires a unique email, creates the canonical creator profile and identities, and returns a creator portal token once.
+
+Open:
+
+```text
+http://127.0.0.1:8765/
+http://127.0.0.1:8765/portal/CREATOR_PORTAL_TOKEN
+```
+
+The creator portal can:
+
+- reply in a campaign conversation,
+- accept the recorded offer,
+- see assignment state and compensation,
+- submit a media file available on the same machine.
+
+Operator JSON endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | local service health |
+| GET | `/register` | optional creator self-registration form |
+| POST | `/api/register` | optional creator self-registration |
+| GET | `/api/dashboard` | counts and attention queue |
+| GET | `/api/creators` | creator directory |
+| GET | `/api/campaigns` | campaign list |
+| GET | `/api/conversations` | unified local inbox |
+| POST | `/api/conversations` | start outreach |
+| GET/POST | `/api/conversations/{id}/messages` | read or send messages |
+| POST | `/api/conversations/{id}/accept` | create an assignment |
+| POST | `/api/submissions/{id}/review` | human submission decision |
+| GET | `/api/portal/{token}` | creator portal data |
+| POST | `/api/portal/{token}/reply` | creator reply |
+| POST | `/api/portal/{token}/accept` | creator acceptance |
+| POST | `/api/portal/{token}/submission` | local-file submission |
+
+The default listener is loopback-only. Binding to a non-loopback address fails unless an operator bearer token is supplied:
+
+```bash
+ugc-cli standalone serve \
+  --bind 0.0.0.0:8765 \
+  --operator-token-source 'file:.ugc/operator-token'
+```
+
+Creator portal tokens are random capabilities stored only as SHA-256 hashes. The plaintext token is returned once. Operator token files must satisfy the same owner-only, non-symlink checks as provider secrets.
+
+### Submission, QC, review, and rights
+
+After the creator submits through the portal, run technical QC:
+
+```bash
+ugc-cli asset qc ASSET_ID \
+  --mime-prefix video/ \
+  --aspect-ratios '9:16'
+
+ugc-cli submission review SUBMISSION_ID \
+  --status approved
+```
+
+QC moves a received submission to `pending_review`. Approval remains a human decision. Record usage rights before publication or escrow release:
+
+```bash
+ugc-cli rights grant \
+  --assignment ASSIGNMENT_ID \
+  --asset ASSET_ID \
+  --owner Example \
+  --license-type commercial \
+  --organic \
+  --paid-ads \
+  --editing \
+  --channels instagram,tiktok \
+  --territories US \
+  --starts-at 2026-07-26T00:00:00Z \
+  --model-release \
+  --music-cleared
+```
+
+### Standalone escrow and offline payout
+
+The ledger is an immutable transfer journal. Balances are derived from posted transfers instead of stored mutable totals.
+
+```text
+external:funding
+  → escrow:ASSIGNMENT_ID
+  → creator:CREATOR_ID
+  → external:offline_payout
+```
+
+Advance the workflow after approval and rights. It creates the payment record when the assignment becomes licensed:
+
+```bash
+ugc-cli standalone workflow --campaign CAMPAIGN_ID --apply
+```
+
+Fund the assignment escrow:
+
+```bash
+ugc-cli standalone ledger-fund \
+  --assignment ASSIGNMENT_ID \
+  --amount-minor 25000 \
+  --currency USD \
+  --idempotency-key funding-reference
+```
+
+Release an approved payment into the creator ledger:
+
+```bash
+ugc-cli standalone ledger-release \
+  --payment PAYMENT_ID \
+  --idempotency-key release-reference
+```
+
+Or let the workflow release every fully validated, funded pending payment:
+
+```bash
+ugc-cli standalone workflow \
+  --campaign CAMPAIGN_ID \
+  --apply \
+  --release-payments
+```
+
+After paying the creator by bank transfer, cash, or another offline rail, record the real settlement reference:
+
+```bash
+ugc-cli standalone ledger-settle \
+  --payment PAYMENT_ID \
+  --reference BANK_OR_RECEIPT_REFERENCE \
+  --idempotency-key settlement-reference
+```
+
+Check balances and journal entries:
+
+```bash
+ugc-cli standalone ledger-balance \
+  --account escrow:ASSIGNMENT_ID \
+  --currency USD
+
+ugc-cli standalone ledger-list --assignment ASSIGNMENT_ID
+```
+
+Standalone mode processes approval, escrow, release, idempotency, reversals, settlement state, and reconciliation locally. It cannot physically move money through a bank without a payment rail; instead it requires the operator's real offline settlement reference before marking the payment paid.
+
+### Publication and performance tracking
+
+Publication is blocked unless the submission is approved, the asset belongs to it, and rights allow the requested channel and paid/organic mode:
+
+```bash
+ugc-cli standalone publication-add \
+  --assignment ASSIGNMENT_ID \
+  --submission SUBMISSION_ID \
+  --asset ASSET_ID \
+  --platform instagram \
+  --channel instagram \
+  --post-id PLATFORM_POST_ID \
+  --url https://instagram.com/p/POST
+```
+
+Capture cumulative metrics:
+
+```bash
+ugc-cli standalone metrics-capture \
+  --publication PUBLICATION_ID \
+  --views 10000 \
+  --likes 800 \
+  --comments 40 \
+  --shares 60 \
+  --saves 100 \
+  --clicks 240 \
+  --conversions 18 \
+  --revenue-minor 90000 \
+  --spend-minor 25000 \
+  --currency USD
+```
+
+Counters cannot decrease between snapshots. Record independently deduplicated conversion or revenue evidence:
+
+```bash
+ugc-cli standalone attribution-add \
+  --publication PUBLICATION_ID \
+  --event-type order \
+  --external-id ORDER_ID \
+  --value-minor 5000 \
+  --currency USD
+```
+
+Campaign report:
+
+```bash
+ugc-cli standalone performance --campaign CAMPAIGN_ID
+```
+
+The report includes creator cost, media spend, revenue, views, engagement, clicks, conversions, engagement rate, click rate, conversion rate, and ROAS.
+
+### Autonomous workflow and attention queue
+
+Dry inspection never mutates state:
+
+```bash
+ugc-cli standalone workflow --campaign CAMPAIGN_ID
+```
+
+Safe apply mode advances only transitions already supported by evidence:
+
+```bash
+ugc-cli standalone workflow --campaign CAMPAIGN_ID --apply
+```
+
+It can advance campaign state, advance approved submissions into licensed assignments, create payment records, release explicitly funded escrow when requested, complete paid assignments, and complete campaigns that have a recorded publication. Human review, rights creation, escrow funding, and real offline settlement remain explicit gates.
+
+```bash
+ugc-cli standalone dashboard
+```
+
+The dashboard reports unanswered conversations, pending reviews, payments awaiting release or settlement, and publications missing metrics.
+
+### Backup and restore
+
+Export all canonical records:
+
+```bash
+ugc-cli standalone export ugc-backup.json
+```
+
+Restore them into another standalone database:
+
+```bash
+ugc-cli --db restored/ugc.db standalone import ugc-backup.json
+```
+
+Assets are separate content-addressed files under `UGC_ASSET_DIR`; copy that directory alongside the JSON export. The import is idempotent by record ID.
+
 ## Wisent tools
 
 ### Skarbiec: secret plane

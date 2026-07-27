@@ -443,6 +443,36 @@ impl Store {
             .transpose()
     }
 
+    pub fn all_records(&self) -> Result<Vec<Record>> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT * FROM records ORDER BY kind,created_at,id")?;
+        let rows = stmt.query_map([], Self::map_record)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn import_records(&self, records: &[Record]) -> Result<Value> {
+        let mut imported = Vec::new();
+        for record in records {
+            if record.kind.trim().is_empty() || record.id.trim().is_empty() {
+                bail!("import record kind and id are required");
+            }
+            self.put(
+                &record.kind,
+                &record.id,
+                record.parent_id.as_deref(),
+                record.secondary_id.as_deref(),
+                &record.status,
+                record.external_id.as_deref(),
+                &record.data,
+                &record.created_at,
+            )?;
+            imported.push(record.id.clone());
+        }
+        Ok(serde_json::json!({"imported": imported}))
+    }
+
     pub fn counts(&self) -> Result<Value> {
         let mut stmt = self
             .db

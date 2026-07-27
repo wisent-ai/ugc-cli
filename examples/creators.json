@@ -1,0 +1,20 @@
+[
+  {
+    "display_name": "Alex Creator",
+    "email": "alex@example.test",
+    "languages": ["en"],
+    "markets": ["US"],
+    "niches": ["beauty", "wellness"],
+    "metadata": {
+      "channels": ["instagram", "tiktok"]
+    },
+    "identities": [
+      {
+        "platform": "instagram",
+        "external_creator_id": "alex_creator",
+        "profile_url": "https://instagram.com/alex_creator",
+        "metadata": {}
+      }
+    ]
+  }
+]
