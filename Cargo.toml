@@ -2,6 +2,9 @@
 name = "ugc-cli"
 version = "0.1.0"
 edition = "2024"
+description = "Local campaign ledger, rights receipts, and creator operations workflow"
+license-file = "LICENSE"
+repository = "https://github.com/wisent-ai/ugc-cli"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -11,7 +14,7 @@ dirs = "6.0.0"
 hex = "0.4.3"
 hmac = "0.13.0"
 infer = "0.22.0"
-reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"] }
+reqwest = { version = "0.13.4", features = ["blocking", "json", "query", "rustls"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

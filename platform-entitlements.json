@@ -1,0 +1,11 @@
+{
+  "schema": "wisent.product-entitlements.current",
+  "product": "ugc",
+  "organization_id": "WISENT_ORGANIZATION_ID",
+  "principal_id": "authenticated creator or campaign operator identity",
+  "community": ["ugc.local"],
+  "managed": ["ugc.organization", "ugc.managed-operations"],
+  "managed_failure": "managed creator network, collaboration, and operations fail closed",
+  "community_failure": "the local campaign ledger and rights gate remain available",
+  "billing_unit": "active campaign or workspace seat"
+}
