@@ -1,5 +1,13 @@
 # ugc-cli
 
+<!-- wisent-readme-signals:start -->
+[![Release](https://img.shields.io/github/v/release/wisent-ai/ugc-cli?display_name=tag&sort=semver)](https://github.com/wisent-ai/ugc-cli/releases)
+[![Downloads](https://img.shields.io/github/downloads/wisent-ai/ugc-cli/total)](https://github.com/wisent-ai/ugc-cli/releases)
+[![License](https://img.shields.io/github/license/wisent-ai/ugc-cli)](https://github.com/wisent-ai/ugc-cli)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Wisent-5865F2?logo=discord&logoColor=white)](https://discord.gg/qRjpkthq54)
+<!-- wisent-readme-signals:end -->
+
+
 Private Rust CLI for provider-agnostic UGC campaign operations. It keeps the canonical state locally in SQLite and treats creator marketplaces as execution channels through capability-aware adapters.
 
 ## Scope
