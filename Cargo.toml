@@ -20,3 +20,5 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 uuid = { version = "1.24.0", features = ["v4", "serde"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "time"] }
+wisent-onboarding-client = { path = "../echo-web/crates/onboarding-client" }

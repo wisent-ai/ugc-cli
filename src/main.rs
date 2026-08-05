@@ -3,6 +3,7 @@ mod ecosystem;
 mod media;
 mod model;
 mod provider;
+mod onboarding;
 mod secret;
 mod server;
 mod service;
@@ -53,6 +54,7 @@ struct Cli {
 enum Command {
     Connection(ConnectionArgs),
     Campaign(CampaignArgs),
+    Onboarding(OnboardingArgs),
     Brief(BriefArgs),
     Creator(CreatorArgs),
     Assignment(AssignmentArgs),
@@ -70,6 +72,18 @@ enum Command {
     Standalone(StandaloneArgs),
     Audit(AuditArgs),
     Diagnostics,
+}
+
+#[derive(Args)]
+struct OnboardingArgs {
+    #[command(subcommand)]
+    command: Option<OnboardingCommand>,
+}
+
+#[derive(Subcommand)]
+enum OnboardingCommand {
+    /// Continue to the next first-use step.
+    Next,
 }
 
 #[derive(Args)]
@@ -544,6 +558,8 @@ enum SyncCommand {
     Run {
         #[arg(long)]
         limit: Option<usize>,
+        #[arg(long)]
+        max_attempts: i64,
     },
     Connection {
         id: String,
@@ -721,6 +737,8 @@ enum StandaloneCommand {
         offer_minor: Option<i64>,
         #[arg(long)]
         shipping_required: bool,
+        #[arg(long)]
+        portal_days: i64,
     },
     ConversationCreate {
         #[arg(long)]
@@ -906,6 +924,16 @@ enum StandaloneCommand {
         operator_token_source: Option<String>,
         #[arg(long)]
         allow_registration: bool,
+        #[arg(long)]
+        portal_days: Option<i64>,
+        #[arg(long)]
+        max_header_line_bytes: usize,
+        #[arg(long)]
+        max_header_count: usize,
+        #[arg(long)]
+        max_body_bytes: usize,
+        #[arg(long)]
+        request_timeout_seconds: u64,
     },
     Export {
         file: PathBuf,
@@ -986,18 +1014,26 @@ fn run() -> Result<()> {
                 budget_minor,
                 currency,
                 deadline,
-            } => output(&service.create_campaign(
-                name,
-                brand,
-                product,
-                objective,
-                markets,
-                languages,
-                channels,
-                budget_minor,
-                currency,
-                deadline,
-            )?)?,
+            } => {
+                let campaign = service.create_campaign(
+                    name,
+                    brand,
+                    product,
+                    objective,
+                    markets,
+                    languages,
+                    channels,
+                    budget_minor,
+                    currency,
+                    deadline,
+                )?;
+                if let Err(error) = onboarding::campaign_created(&db_path, &cli.actor, &campaign) {
+                    eprintln!(
+                        "warning: campaign was created, but onboarding progress could not be recorded: {error:#}"
+                    );
+                }
+                output(&campaign)?;
+            }
             CampaignCommand::List { status } => {
                 output(&store.list::<Campaign>("campaign", None, status.as_deref())?)?
             }
@@ -1014,6 +1050,10 @@ fn run() -> Result<()> {
                 output(&store.list::<Publication>("publication", Some(&id), None)?)?
             }
         },
+        Command::Onboarding(args) => {
+            let advance = matches!(args.command, Some(OnboardingCommand::Next));
+            output(&onboarding::run(&db_path, &cli.actor, &store, advance)?)?;
+        }
         Command::Brief(args) => match args.command {
             BriefCommand::Add {
                 campaign,
@@ -1308,9 +1348,13 @@ fn run() -> Result<()> {
             }
         },
         Command::Sync(args) => match args.command {
-            SyncCommand::Run { limit } => output(&sync::process_outbox(
+            SyncCommand::Run {
+                limit,
+                max_attempts,
+            } => output(&sync::process_outbox(
                 &store,
-                limit.unwrap_or_else(default_batch),
+                limit.unwrap_or(usize::MAX),
+                max_attempts,
                 &cli.actor,
             )?)?,
             SyncCommand::Connection { id } => {
@@ -1459,6 +1503,7 @@ fn run() -> Result<()> {
                 limit,
                 offer_minor,
                 shipping_required,
+                portal_days,
             } => output(&standalone.launch_campaign(
                 &campaign,
                 &brief,
@@ -1474,6 +1519,7 @@ fn run() -> Result<()> {
                 },
                 offer_minor,
                 shipping_required,
+                portal_days,
             )?)?,
             StandaloneCommand::ConversationCreate {
                 creator,
@@ -1646,6 +1692,11 @@ fn run() -> Result<()> {
                 bind,
                 operator_token_source,
                 allow_registration,
+                portal_days,
+                max_header_line_bytes,
+                max_header_count,
+                max_body_bytes,
+                request_timeout_seconds,
             } => {
                 let operator_token = operator_token_source
                     .as_deref()
@@ -1658,6 +1709,13 @@ fn run() -> Result<()> {
                     &cli.actor,
                     operator_token,
                     allow_registration,
+                    portal_days,
+                    standalone_server::ServerLimits {
+                        header_line_bytes: max_header_line_bytes,
+                        header_count: max_header_count,
+                        body_bytes: max_body_bytes,
+                        timeout_seconds: request_timeout_seconds,
+                    },
                 )?;
             }
             StandaloneCommand::Export { file } => {
@@ -1716,10 +1774,6 @@ fn default_asset_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".ugc/assets"))
 }
 
-fn default_batch() -> usize {
-    "batch".len() * "batch".len()
-}
-
 fn option_or_env(option: Option<String>, name: &str) -> Result<String> {
     option
         .or_else(|| env::var(name).ok())
@@ -1758,7 +1812,7 @@ fn reject_symbolic_link_output(path: &Path) -> Result<()> {
 fn protect_private_output(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let mode = u32::from_str_radix("600", "security".len())?;
+    let mode = u32::from_str_radix("600", "security".len() as u32)?;
     fs::set_permissions(path, fs::Permissions::from_mode(mode))
         .with_context(|| format!("cannot protect {}", path.display()))
 }
