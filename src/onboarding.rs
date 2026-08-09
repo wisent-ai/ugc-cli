@@ -10,8 +10,8 @@ use serde_json::Value;
 use tokio::runtime::Builder;
 use uuid::Uuid;
 use wisent_onboarding_client::{
-    FileStorage, JourneyClient, JourneyError, OfflineTransport, ProgressStatus, ScopeKind,
-    StadoTransport, Transport, bundle_from_canonical,
+    FileStorage, IntegrationTransport, JourneyClient, JourneyError, OfflineTransport,
+    ProgressStatus, ScopeKind, Transport, bundle_from_canonical,
 };
 
 use crate::{
@@ -122,8 +122,8 @@ fn client(db_path: &Path, actor: &str) -> Result<Client> {
         env::var(STADO_TOKEN_ENV).ok(),
     ) {
         (Some(base_url), Some(token)) => Box::new(
-            StadoTransport::new(&base_url, token)
-                .context("invalid Stado onboarding transport configuration")?,
+            IntegrationTransport::new(&base_url, token)
+                .context("invalid onboarding integration transport configuration")?,
         ),
         _ => Box::new(OfflineTransport),
     };
