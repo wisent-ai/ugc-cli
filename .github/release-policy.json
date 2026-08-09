@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "releases": false,
+  "reason": "The README describes public development source and a local executable, while the repository defines no supported immutable artifact publisher."
+}
