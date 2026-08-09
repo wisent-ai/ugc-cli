@@ -1,0 +1,15 @@
+[automation]
+managed = true
+source_fingerprint = "7a6bc192499fbb75"
+category = "agent"
+
+[banner]
+title = "Run creator campaigns from one local ledger."
+description = "System of record for briefs, creators, assets, rights, payments, publication, and audit."
+product = "Wisent"
+url = "wisent.ai"
+theme = "dark"
+layout = "orbit-left"
+art_seed = "ugc-cli"
+width = 1584
+height = 396
