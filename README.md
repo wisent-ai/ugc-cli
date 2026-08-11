@@ -10,9 +10,15 @@
 
 # UGC CLI
 
-**UGC CLI is a local campaign system of record for creator discovery, briefs,
-assignments, shipping, messaging, submissions, assets, rights, payments,
-publication, attribution, and audit.**
+Scale Your AI GTM with UGC.
+
+Give your AI Agent a tool to launch campaigns with real creators. Find creators,
+generate briefs, track statistics, handle payments — all from one accessible CLI.
+All the information you need to communicate with your creators in one API.
+Advertise your services as a creator and find opportunities to generate
+additional income automatically.
+
+Your Campaign, Scaled by Real Humans.
 
 It provides a complete standalone ledger and manual-provider workflow without
 requiring a creator marketplace, hosted database, Wisent account, or payment
