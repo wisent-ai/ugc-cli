@@ -76,14 +76,15 @@ enum Command {
 
 #[derive(Args)]
 struct OnboardingArgs {
-    #[command(subcommand)]
-    command: Option<OnboardingCommand>,
-}
-
-#[derive(Subcommand)]
-enum OnboardingCommand {
-    /// Continue to the next first-use step.
-    Next,
+    /// Discard the recorded attempt and replay the journey from its entry screen.
+    #[arg(long)]
+    reset: bool,
+    /// Emit the whole walk as one JSON document instead of printing screens.
+    #[arg(long)]
+    json: bool,
+    /// Never wait for Enter between screens.
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args)]
@@ -1027,11 +1028,6 @@ fn run() -> Result<()> {
                     currency,
                     deadline,
                 )?;
-                if let Err(error) = onboarding::campaign_created(&db_path, &cli.actor, &campaign) {
-                    eprintln!(
-                        "warning: campaign was created, but onboarding progress could not be recorded: {error:#}"
-                    );
-                }
                 output(&campaign)?;
             }
             CampaignCommand::List { status } => {
@@ -1050,10 +1046,14 @@ fn run() -> Result<()> {
                 output(&store.list::<Publication>("publication", Some(&id), None)?)?
             }
         },
-        Command::Onboarding(args) => {
-            let advance = matches!(args.command, Some(OnboardingCommand::Next));
-            output(&onboarding::run(&db_path, &cli.actor, &store, advance)?)?;
-        }
+        Command::Onboarding(args) => onboarding::run(
+            &db_path,
+            &cli.actor,
+            &store,
+            args.reset,
+            args.json,
+            args.yes,
+        )?,
         Command::Brief(args) => match args.command {
             BriefCommand::Add {
                 campaign,

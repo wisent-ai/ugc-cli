@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "product_id": "ugc-cli",
+  "journey_id": "first-use",
+  "journey_version": "2026-09-02.1",
+  "entry_screen_id": "local-campaign-ledger",
+  "first_success_fact": "campaign_record_created",
+  "published_at": "2026-09-02T00:00:00Z",
+  "source_revision": "ugc-cli-first-use-2026-09-02.1",
+  "screens": [
+    {
+      "screen_id": "local-campaign-ledger",
+      "screen_kind": "promise",
+      "title_key": "ugc-cli.onboarding.local-campaign-ledger.title",
+      "body_key": "ugc-cli.onboarding.local-campaign-ledger.body",
+      "required": true,
+      "actions": [
+        "continue"
+      ],
+      "transitions": [
+        {
+          "next_screen_id": "ledger-boundary",
+          "reason_code": "promise_understood",
+          "priority": 10
+        }
+      ],
+      "presentation": {
+        "renderer": "promise",
+        "title": "One local ledger for the whole creator campaign",
+        "body": "UGC CLI keeps the record of creator work in one local SQLite file you own: campaigns, versioned briefs, creator profiles and identities, assignments, shipments, messages, submissions, content-addressed assets, usage-rights grants, payment records, publications and attribution, over an immutable audit log. It needs no marketplace account, no hosted database and no payment provider."
+      }
+    },
+    {
+      "screen_id": "ledger-boundary",
+      "screen_kind": "explanation",
+      "title_key": "ugc-cli.onboarding.ledger-boundary.title",
+      "body_key": "ugc-cli.onboarding.ledger-boundary.body",
+      "required": true,
+      "actions": [
+        "continue"
+      ],
+      "transitions": [
+        {
+          "next_screen_id": "open-ledger",
+          "reason_code": "boundary_understood",
+          "priority": 10
+        }
+      ],
+      "presentation": {
+        "renderer": "explanation",
+        "title": "A record of the work, not the execution of it",
+        "body": "Commissioning the creator work itself is HandToHuman's ugc_video task; this CLI is the ledger beside it, holding the campaign, rights, asset, payment-record and publication history. Nothing in this walkthrough contacts a creator. A payment row is recorded compensation state, not settlement, and moves no money. Publication fails closed without an approved brief, a reviewed submission and valid rights scope.",
+        "command": "ugc diagnostics"
+      }
+    },
+    {
+      "screen_id": "open-ledger",
+      "screen_kind": "first_action",
+      "title_key": "ugc-cli.onboarding.open-ledger.title",
+      "body_key": "ugc-cli.onboarding.open-ledger.body",
+      "required": true,
+      "completion_evidence": {
+        "kind": "fact",
+        "fact": "campaign_ledger_opened",
+        "operator": "eq",
+        "value": true
+      },
+      "actions": [
+        "open_ledger"
+      ],
+      "transitions": [
+        {
+          "next_screen_id": "first-campaign-record",
+          "reason_code": "campaign_ledger_opened",
+          "priority": 10
+        }
+      ],
+      "presentation": {
+        "renderer": "first_action",
+        "title": "Open the ledger you are going to keep",
+        "body": "The ledger is the SQLite file --db points at, created on first use with owner-only permissions and asked for a count of every record kind it holds. Point --db at a scratch file to rehearse the journey, or at your working ledger to start for real. This step is satisfied once your own ledger opens and reports those counts.",
+        "command": "ugc --db <ledger.db> diagnostics"
+      }
+    },
+    {
+      "screen_id": "first-campaign-record",
+      "screen_kind": "first_success",
+      "title_key": "ugc-cli.onboarding.first-campaign-record.title",
+      "body_key": "ugc-cli.onboarding.first-campaign-record.body",
+      "required": true,
+      "completion_evidence": {
+        "kind": "fact",
+        "fact": "campaign_record_created",
+        "operator": "eq",
+        "value": true
+      },
+      "actions": [
+        "create_campaign",
+        "read_back_campaign"
+      ],
+      "transitions": [],
+      "presentation": {
+        "renderer": "first_success",
+        "title": "Record the first campaign and read it back",
+        "body": "A campaign is the anchor every later row references: briefs, assignments, submissions, assets, rights grants, payment records and publications all hang from its id. Create it with real working details; the ledger stamps the accepted record, and this step completes only once that record is read back out of the database by its id. Creating a campaign contacts no creator and commits no spend.",
+        "command": "ugc campaign create --name <name> --brand <brand> --product <product> --objective <objective>"
+      }
+    }
+  ],
+  "analytics_contract": {
+    "contract_version": "1",
+    "surface": "cli_first_use",
+    "exposure_event": "onboarding_step_viewed",
+    "primary_action_event": "onboarding_step_completed",
+    "completion_event": "onboarding_completed",
+    "first_success_event": "onboarding_first_success_observed"
+  }
+}
