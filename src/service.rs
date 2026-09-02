@@ -126,6 +126,10 @@ impl<'a> UgcService<'a> {
             &campaign.created_at,
         )?;
         self.audit("campaign", &campaign.id, "created", json!({}))?;
+        // The ledger accepted a campaign record, which is this product's
+        // first real result: the first-use fact is stamped here, where the
+        // effect happens, not where a walkthrough asks about it.
+        crate::onboarding::record_first_success(self.store, &campaign)?;
         Ok(campaign)
     }
 
