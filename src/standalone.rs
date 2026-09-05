@@ -123,7 +123,7 @@ impl<'a> StandaloneService<'a> {
         Ok(json!({"created": created, "existing": existing}))
     }
 
-    pub fn register_creator(&self, seed: CreatorSeed) -> Result<Value> {
+    pub fn register_creator(&self, seed: CreatorSeed, portal_days: Option<i64>) -> Result<Value> {
         let email = seed
             .email
             .as_deref()
@@ -193,7 +193,7 @@ impl<'a> StandaloneService<'a> {
                 metadata,
             )?);
         }
-        let portal = self.create_portal_access(&creator.id, Some(int("30")))?;
+        let portal = self.create_portal_access(&creator.id, portal_days.or(Some(int("30"))))?;
         self.audit("creator", &creator.id, "self_registered", json!({}))?;
         Ok(json!({
             "creator": creator,

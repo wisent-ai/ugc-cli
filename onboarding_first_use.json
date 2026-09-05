@@ -2,11 +2,10 @@
   "schema_version": 1,
   "product_id": "ugc-cli",
   "journey_id": "first-use",
-  "journey_version": "2026-09-02.1",
+  "journey_version": "2026-09-05.1",
   "entry_screen_id": "local-campaign-ledger",
   "first_success_fact": "campaign_record_created",
-  "published_at": "2026-09-02T00:00:00Z",
-  "source_revision": "ugc-cli-first-use-2026-09-02.1",
+  "published_at": "2026-09-05T00:00:00Z",
   "screens": [
     {
       "screen_id": "local-campaign-ledger",
@@ -50,7 +49,7 @@
         "renderer": "explanation",
         "title": "A record of the work, not the execution of it",
         "body": "Commissioning the creator work itself is HandToHuman's ugc_video task; this CLI is the ledger beside it, holding the campaign, rights, asset, payment-record and publication history. Nothing in this walkthrough contacts a creator. A payment row is recorded compensation state, not settlement, and moves no money. Publication fails closed without an approved brief, a reviewed submission and valid rights scope.",
-        "command": "ugc diagnostics"
+        "command": "ugc-cli diagnostics"
       }
     },
     {
@@ -79,7 +78,7 @@
         "renderer": "first_action",
         "title": "Open the ledger you are going to keep",
         "body": "The ledger is the SQLite file --db points at, created on first use with owner-only permissions and asked for a count of every record kind it holds. Point --db at a scratch file to rehearse the journey, or at your working ledger to start for real. This step is satisfied once your own ledger opens and reports those counts.",
-        "command": "ugc --db <ledger.db> diagnostics"
+        "command": "ugc-cli --db <ledger.db> diagnostics"
       }
     },
     {
@@ -95,15 +94,16 @@
         "value": true
       },
       "actions": [
+        "import_existing_ledger",
         "create_campaign",
         "read_back_campaign"
       ],
       "transitions": [],
       "presentation": {
         "renderer": "first_success",
-        "title": "Record the first campaign and read it back",
-        "body": "A campaign is the anchor every later row references: briefs, assignments, submissions, assets, rights grants, payment records and publications all hang from its id. Create it with real working details; the ledger stamps the accepted record, and this step completes only once that record is read back out of the database by its id. Creating a campaign contacts no creator and commits no spend.",
-        "command": "ugc campaign create --name <name> --brand <brand> --product <product> --objective <objective>"
+        "title": "Import your existing ledger or record the first campaign",
+        "body": "If you already use UGC CLI, run this walkthrough with --import and the JSON written by `ugc-cli standalone export`; the ledger validates every record and relationship before one transaction preserves campaign, brief, creator, rights, and payment metadata. Existing identical records remain unchanged, any difference or unsupported record refuses the whole import, and no commission, outreach, payment, or publication runs. If you have no export, create a campaign with real working details. This step completes only after the destination reads an accepted campaign back by id.",
+        "command": "ugc-cli --db <ledger.db> onboarding --reset --import <export.json>"
       }
     }
   ],
@@ -114,5 +114,5 @@
     "primary_action_event": "onboarding_step_completed",
     "completion_event": "onboarding_completed",
     "first_success_event": "onboarding_first_success_observed"
-  }
-}
+  },
+  "source_revision": "ugc-cli-first-use-2026-09-05.1"

@@ -41,6 +41,22 @@ CLI-level `--db` and `--asset-dir` override environment defaults.
 
 On Unix, the database, its SQLite sidecars, exported backups, and stored assets are forced to owner-only permissions. Symbolic-link paths are rejected for the database, asset directory, and backup output.
 
+## First use with an existing ledger
+
+Use the exact record array produced by `standalone export` to start onboarding from data you already own:
+
+```bash
+ugc-cli --db restored/ugc.db onboarding --reset --import ugc-backup.json
+```
+
+The walkthrough completes only after the destination accepts the import and reads back a campaign record. Without `--import`, onboarding remains usable with an empty ledger and waits for your first real campaign. The reusable command outside onboarding is:
+
+```bash
+ugc-cli --db restored/ugc.db standalone import ugc-backup.json
+```
+
+Both commands call the same store import operation. It returns `imported`, `unchanged`, `conflicting`, and `rejected` record lists and never prints credential contents.
+
 ## Standalone mode: complete local workflow
 
 Standalone mode requires no creator marketplace, Weles, Brama, Skarbiec, Stripe, email provider, hosted database, or external API. SQLite is the system of record, assets stay in the local content-addressed library, conversations use the local creator portal, payouts use the internal escrow ledger plus an operator-recorded offline settlement, and publication metrics can be entered locally.
@@ -164,6 +180,7 @@ Operator JSON endpoints:
 | GET | `/health` | local service health |
 | GET | `/register` | optional creator self-registration form |
 | POST | `/api/register` | optional creator self-registration |
+| POST | `/api/import` | validate and atomically import a `standalone export` record array |
 | GET | `/api/dashboard` | counts and attention queue |
 | GET | `/api/creators` | creator directory |
 | GET | `/api/campaigns` | campaign list |
@@ -395,7 +412,9 @@ Restore them into another standalone database:
 ugc-cli --db restored/ugc.db standalone import ugc-backup.json
 ```
 
-Assets are separate content-addressed files under `UGC_ASSET_DIR`; copy that directory alongside the JSON export. The import is idempotent by record ID.
+The complete export is validated before mutation: record kinds and typed payloads, top-level identity and timestamps, parent/secondary relationships, and external identities must all be preservable. Import then commits new records and their audit events in one SQLite transaction. Exact existing records are unchanged; a reused record ID or external identity with different data is a conflict. Unsupported, missing, lossy, or noncanonical records are rejected. Any conflict or rejection leaves the ledger unchanged.
+
+Usage-rights and payment records are retained as canonical records, but import does not settle payment, publish, contact a creator, or enqueue provider work. Assets are separate content-addressed files under `UGC_ASSET_DIR`; copy that directory alongside the JSON export. Repeating the same export is idempotent.
 
 ## Wisent tools
 

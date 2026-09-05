@@ -12,12 +12,20 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    db::Store,
+    db::{Record, Store},
     media,
     model::{Assignment, Campaign, Conversation, Creator, ShippingAddress},
     service::UgcService,
     standalone::{CreatorSeed, StandaloneService},
 };
+
+#[derive(Clone, Copy)]
+pub struct ServerLimits {
+    pub header_line_bytes: usize,
+    pub header_count: usize,
+    pub body_bytes: usize,
+    pub timeout_seconds: u64,
+}
 
 pub fn serve(
     store: &Store,
@@ -26,12 +34,21 @@ pub fn serve(
     actor: &str,
     operator_token: Option<String>,
     allow_registration: bool,
+    portal_days: Option<i64>,
+    limits: ServerLimits,
 ) -> Result<()> {
     let address: SocketAddr = bind
         .parse()
         .with_context(|| format!("invalid bind address: {bind}"))?;
     if !address.ip().is_loopback() && operator_token.is_none() {
         bail!("non-loopback standalone server requires --operator-token-source");
+    }
+    if limits.header_line_bytes == 0
+        || limits.header_count == 0
+        || limits.body_bytes == 0
+        || limits.timeout_seconds == 0
+    {
+        bail!("standalone server limits must be positive");
     }
     let listener = TcpListener::bind(address)
         .with_context(|| format!("cannot bind standalone server to {bind}"))?;
@@ -40,7 +57,7 @@ pub fn serve(
         match stream {
             Ok(mut stream) => {
                 let response = (|| -> Result<Response> {
-                    let timeout = Duration::from_secs(request_timeout_seconds());
+                    let timeout = Duration::from_secs(limits.timeout_seconds);
                     stream.set_read_timeout(Some(timeout))?;
                     stream.set_write_timeout(Some(timeout))?;
                     handle(
@@ -49,6 +66,8 @@ pub fn serve(
                         actor,
                         operator_token.as_deref(),
                         allow_registration,
+                        portal_days,
+                        limits,
                         &mut stream,
                     )
                 })()
@@ -107,9 +126,11 @@ fn handle(
     actor: &str,
     operator_token: Option<&str>,
     allow_registration: bool,
+    portal_days: Option<i64>,
+    limits: ServerLimits,
     stream: &mut TcpStream,
 ) -> Result<Response> {
-    let request = read_request(stream)?;
+    let request = read_request(stream, limits)?;
     if request.path == "/health" {
         return Ok(Response::json(
             "HTTP/1.1 200 OK",
@@ -127,7 +148,7 @@ fn handle(
         let standalone = StandaloneService { store, actor };
         return Ok(Response::json(
             "HTTP/1.1 201 Created",
-            standalone.register_creator(seed)?,
+            standalone.register_creator(seed, portal_days)?,
         ));
     }
     if let Some(token) = request.path.strip_prefix("/portal/") {
@@ -148,6 +169,16 @@ fn operator_api(store: &Store, actor: &str, request: &Request) -> Result<Respons
     let core = UgcService { store, actor };
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/api/dashboard") => Ok(Response::json("HTTP/1.1 200 OK", standalone.dashboard()?)),
+        ("POST", "/api/import") => {
+            let records: Vec<Record> = request.json()?;
+            let result = store.import_records(&records, actor)?;
+            let status = if result.get("applied").and_then(Value::as_bool) == Some(true) {
+                "HTTP/1.1 200 OK"
+            } else {
+                "HTTP/1.1 409 Conflict"
+            };
+            Ok(Response::json(status, result))
+        }
         ("GET", "/api/creators") => Ok(Response::json(
             "HTTP/1.1 200 OK",
             serde_json::to_value(store.list::<Creator>(
@@ -516,9 +547,9 @@ async function submitAsset(id){{const input=document.getElementById(`file-${{id}
     Ok(Response::html(html))
 }
 
-fn read_request(stream: &mut TcpStream) -> Result<Request> {
+fn read_request(stream: &mut TcpStream, limits: ServerLimits) -> Result<Request> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let first_line = read_http_line(&mut reader)?;
+    let first_line = read_http_line(&mut reader, limits.header_line_bytes)?;
     let mut parts = first_line.split_whitespace();
     let method = parts
         .next()
@@ -530,11 +561,11 @@ fn read_request(stream: &mut TcpStream) -> Result<Request> {
     let query = parse_query(raw_query)?;
     let mut headers = BTreeMap::new();
     loop {
-        let line = read_http_line(&mut reader)?;
+        let line = read_http_line(&mut reader, limits.header_line_bytes)?;
         if line == "\r\n" || line == "\n" || line.is_empty() {
             break;
         }
-        if headers.len() >= max_request_header_count() {
+        if headers.len() >= limits.header_count {
             bail!("too many request headers");
         }
         let (name, value) = line
@@ -556,7 +587,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request> {
         .map(|value| value.parse::<usize>())
         .transpose()?
         .unwrap_or_default();
-    if length > max_request_body_bytes() {
+    if length > limits.body_bytes {
         bail!("request body exceeds standalone server limit");
     }
     let mut body = vec![b' '; length];
@@ -570,8 +601,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request> {
     })
 }
 
-fn read_http_line(reader: &mut impl BufRead) -> Result<String> {
-    let limit = max_request_header_line_bytes();
+fn read_http_line(reader: &mut impl BufRead, limit: usize) -> Result<String> {
     let mut bytes = Vec::new();
     let read = reader
         .take(limit.saturating_add(usize::from(true)))
@@ -688,9 +718,14 @@ async function register(){{const platform=document.getElementById('platform').va
 
 fn operator_home() -> String {
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>UGC operations</title><style>{}</style></head><body><main><h1>Standalone UGC operations</h1><p>JSON endpoints:</p><ul><li><a href=\"/api/dashboard\">Dashboard</a></li><li><a href=\"/api/creators\">Creators</a></li><li><a href=\"/api/campaigns\">Campaigns</a></li><li><a href=\"/api/conversations\">Conversations</a></li></ul><p>Mutations use the documented JSON API or the ugc-cli commands.</p></main></body></html>",
-        portal_css()
+        r#"<!doctype html><html><head><meta charset="utf-8"><title>UGC operations</title><style>{}</style></head><body><main><h1>Standalone UGC operations</h1><p>Import the exact JSON array written by <code>ugc standalone export</code>. The ledger validates the complete file before one transaction; existing records are preserved and conflicts change nothing.</p><section><label>Ledger export<input id="ledger-file" type="file" accept="application/json,.json"></label><label>Operator token (only when the server requires one)<input id="operator-token" type="password" autocomplete="off"></label><button onclick="importLedger()">Import existing records</button><pre id="import-result" role="status"></pre></section><p>JSON endpoints:</p><ul><li><a href="/api/dashboard">Dashboard</a></li><li><a href="/api/creators">Creators</a></li><li><a href="/api/campaigns">Campaigns</a></li><li><a href="/api/conversations">Conversations</a></li></ul><p>Importing records does not contact creators, move money, release payments, or publish campaigns.</p><script>{}</script></main></body></html>"#,
+        portal_css(),
+        operator_import_script(),
     )
+}
+
+fn operator_import_script() -> &'static str {
+    r#"async function importLedger(){const output=document.getElementById('import-result');const file=document.getElementById('ledger-file').files.item(0);if(!file){output.textContent='Choose a ledger export first.';return;}let records;try{records=JSON.parse(await file.text());}catch(error){output.textContent=`Invalid JSON: ${error.message}`;return;}const token=document.getElementById('operator-token').value.trim();const headers={'content-type':'application/json'};if(token)headers.authorization=`Bearer ${token}`;const response=await fetch('/api/import',{method:'POST',headers,body:JSON.stringify(records)});const result=await response.json();output.textContent=JSON.stringify(result,null,2);}"#
 }
 
 fn portal_css() -> &'static str {
@@ -716,13 +751,6 @@ struct NewConversation {
     #[serde(default)]
     shipping_required: bool,
     initial_message: Option<String>,
-}
-fn max_request_header_line_bytes() -> usize {
-    usize::from_str_radix("4000", "security".len()).expect("valid request header line limit")
-}
-
-fn max_request_header_count() -> usize {
-    "100".parse().expect("valid request header count limit")
 }
 
 #[derive(Deserialize)]
@@ -757,10 +785,3 @@ struct PortalShipping {
     address: ShippingAddress,
 }
 
-fn max_request_body_bytes() -> usize {
-    "104857600".parse().expect("valid request body limit")
-}
-
-fn request_timeout_seconds() -> u64 {
-    "30".parse().expect("valid request timeout")
-}

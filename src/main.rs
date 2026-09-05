@@ -79,6 +79,9 @@ struct OnboardingArgs {
     /// Discard the recorded attempt and replay the journey from its entry screen.
     #[arg(long)]
     reset: bool,
+    /// Import a canonical `ugc standalone export` while walking first use.
+    #[arg(long, value_name = "EXPORT_JSON")]
+    import: Option<PathBuf>,
     /// Emit the whole walk as one JSON document instead of printing screens.
     #[arg(long)]
     json: bool,
@@ -927,13 +930,13 @@ enum StandaloneCommand {
         allow_registration: bool,
         #[arg(long)]
         portal_days: Option<i64>,
-        #[arg(long)]
+        #[arg(long, default_value = "2048")]
         max_header_line_bytes: usize,
-        #[arg(long)]
+        #[arg(long, default_value = "100")]
         max_header_count: usize,
-        #[arg(long)]
+        #[arg(long, default_value = "104857600")]
         max_body_bytes: usize,
-        #[arg(long)]
+        #[arg(long, default_value = "30")]
         request_timeout_seconds: u64,
     },
     Export {
@@ -1051,6 +1054,7 @@ fn run() -> Result<()> {
             &cli.actor,
             &store,
             args.reset,
+            args.import.as_deref(),
             args.json,
             args.yes,
         )?,
@@ -1731,7 +1735,7 @@ fn run() -> Result<()> {
                     &fs::read(&file).with_context(|| format!("cannot read {}", file.display()))?,
                 )
                 .context("standalone import must be a record export JSON array")?;
-                output(&store.import_records(&records)?)?;
+                output(&store.import_records(&records, &cli.actor)?)?;
             }
         },
         Command::Audit(args) => {

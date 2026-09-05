@@ -10,8 +10,9 @@
 //! progress of a working ledger. `--reset` discards the recorded attempt and
 //! replays the journey from its entry screen in the same invocation.
 //!
-//! Nothing here contacts a creator and nothing here moves money: the walk
-//! reads record counts and one campaign row out of the local ledger.
+//! Nothing here contacts a creator and nothing here moves money. With
+//! `--import`, the walk calls the same validated, transactional ledger import
+//! as `standalone import`; otherwise it only reads local evidence.
 use std::{
     fs,
     io::{self, IsTerminal, Write},
@@ -23,7 +24,10 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::{db::Store, model::Campaign};
+use crate::{
+    db::{Record, Store},
+    model::Campaign,
+};
 
 const PRODUCT_ID: &str = "ugc-cli";
 const JOURNEY_ID: &str = "first-use";
@@ -65,6 +69,7 @@ pub(crate) fn run(
     actor: &str,
     store: &Store,
     reset: bool,
+    import_file: Option<&Path>,
     json_output: bool,
     yes: bool,
 ) -> Result<()> {
@@ -80,7 +85,7 @@ pub(crate) fn run(
         report.finish(
             "completed",
             &state,
-            "This ledger already accepted its first campaign record. Replay the journey with: ugc onboarding --reset",
+            "This ledger already accepted its first campaign record. Replay the journey with: ugc-cli onboarding --reset",
         );
         return report.emit();
     }
@@ -103,6 +108,23 @@ pub(crate) fn run(
                     .context("an open ledger does not satisfy the published journey")?;
             }
             Some("first_success") => {
+                if let Some(file) = import_file {
+                    let records: Vec<Record> = serde_json::from_slice(
+                        &fs::read(file)
+                            .with_context(|| format!("cannot read {}", file.display()))?,
+                    )
+                    .context("onboarding import must be a canonical record export JSON array")?;
+                    let result = store.import_records(&records, actor)?;
+                    report.note(&format!("Import result: {result}"));
+                    if result.get("applied").and_then(Value::as_bool) != Some(true) {
+                        report.finish(
+                            "import_refused",
+                            &state,
+                            "Resolve every reported conflict or rejection; the ledger was not changed.",
+                        );
+                        return report.emit();
+                    }
+                }
                 let campaign = match first_campaign(store)? {
                     FirstCampaign::Accepted(campaign) => campaign,
                     FirstCampaign::None => {
@@ -112,7 +134,7 @@ pub(crate) fn run(
                         report.finish(
                             "awaiting_campaign",
                             &state,
-                            "Record the first campaign, then run: ugc onboarding",
+                            "Record the first campaign, then run: ugc-cli onboarding",
                         );
                         return report.emit();
                     }
@@ -123,7 +145,7 @@ pub(crate) fn run(
                         report.finish(
                             "awaiting_campaign",
                             &state,
-                            "Record a campaign this ledger can read back, then run: ugc onboarding",
+                            "Record a campaign this ledger can read back, then run: ugc-cli onboarding",
                         );
                         return report.emit();
                     }
@@ -138,7 +160,7 @@ pub(crate) fn run(
                     "completed",
                     &state,
                     &format!(
-                        "Give the campaign its first brief with: ugc brief add --campaign {} --creative-angle <angle>",
+                        "Give the campaign its first brief with: ugc-cli brief add --campaign {} --creative-angle <angle>",
                         campaign.id
                     ),
                 );

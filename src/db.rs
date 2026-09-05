@@ -9,8 +9,16 @@ use rusqlite::{Connection as Sqlite, OptionalExtension, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use uuid::Uuid;
+use crate::model::{
+    Asset, Assignment, AttributionEvent, Brief, Campaign, Connection, Conversation,
+    ConversationMessage, Creator, CreatorIdentity, LedgerTransfer, Message, MetricSnapshot,
+    Payment, PortalAccess, ProviderEvent, Publication, Shipment, StandalonePublication,
+    Submission, UsageRights,
+};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+
+#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Record {
     pub kind: String,
     pub id: String,
@@ -459,25 +467,213 @@ impl Store {
             .map_err(Into::into)
     }
 
-    pub fn import_records(&self, records: &[Record]) -> Result<Value> {
-        let mut imported = Vec::new();
-        for record in records {
-            if record.kind.trim().is_empty() || record.id.trim().is_empty() {
-                bail!("import record kind and id are required");
-            }
-            self.put(
-                &record.kind,
-                &record.id,
-                record.parent_id.as_deref(),
-                record.secondary_id.as_deref(),
-                &record.status,
-                record.external_id.as_deref(),
-                &record.data,
-                &record.created_at,
-            )?;
-            imported.push(record.id.clone());
+    pub fn import_records(&self, records: &[Record], actor: &str) -> Result<Value> {
+        if records.is_empty() {
+            return Ok(serde_json::json!({
+                "applied": false,
+                "imported": [],
+                "unchanged": [],
+                "conflicting": [],
+                "rejected": [{"kind": "$", "id": "", "reason": "record export is empty"}],
+            }));
         }
-        Ok(serde_json::json!({"imported": imported}))
+        let existing = self.all_records()?;
+        let mut by_id = std::collections::BTreeMap::new();
+        let mut by_external = std::collections::BTreeMap::new();
+        for record in existing {
+            if let Some(external_id) = &record.external_id {
+                by_external.insert(
+                    (record.kind.clone(), external_id.clone()),
+                    record.id.clone(),
+                );
+            }
+            by_id.insert(record.id.clone(), record);
+        }
+
+        let mut incoming_ids = std::collections::BTreeSet::new();
+        let mut incoming_external = std::collections::BTreeMap::new();
+        let mut unchanged = Vec::new();
+        let mut conflicting = Vec::new();
+        let mut rejected = Vec::new();
+        let mut pending = Vec::new();
+
+        for record in records {
+            if !incoming_ids.insert(record.id.clone()) {
+                rejected.push(import_issue(record, "duplicate record id in import"));
+                continue;
+            }
+            if let Some(external_id) = &record.external_id {
+                let key = (record.kind.clone(), external_id.clone());
+                if let Some(other_id) = incoming_external.insert(key, record.id.clone()) {
+                    rejected.push(import_issue(
+                        record,
+                        &format!("external identity is also used by record {other_id}"),
+                    ));
+                    continue;
+                }
+            }
+            if let Err(error) = validate_import_record(record) {
+                rejected.push(import_issue(record, &error.to_string()));
+                continue;
+            }
+            if let Some(current) = by_id.get(&record.id) {
+                if current == record {
+                    unchanged.push(record.id.clone());
+                } else {
+                    conflicting.push(import_issue(
+                        record,
+                        "destination already has a different record with this id",
+                    ));
+                }
+                continue;
+            }
+            if let Some(external_id) = &record.external_id {
+                if let Some(current_id) =
+                    by_external.get(&(record.kind.clone(), external_id.clone()))
+                {
+                    conflicting.push(import_issue(
+                        record,
+                        &format!(
+                            "destination record {current_id} already owns this external identity"
+                        ),
+                    ));
+                    continue;
+                }
+            }
+            pending.push(record);
+        }
+        let available_records: std::collections::BTreeMap<&str, &str> = by_id
+            .iter()
+            .map(|(id, record)| (id.as_str(), record.kind.as_str()))
+            .chain(
+                pending
+                    .iter()
+                    .map(|record| (record.id.as_str(), record.kind.as_str())),
+            )
+            .collect();
+        for record in &pending {
+            if record.kind == "provider_event" && record.parent_id.is_none() {
+                rejected.push(import_issue(record, "provider event connection parent is missing"));
+            }
+            if let Some(parent_id) = record.parent_id.as_deref() {
+                match available_records.get(parent_id) {
+                    None => rejected.push(import_issue(
+                        record,
+                        &format!("parent record is missing: {parent_id}"),
+                    )),
+                    Some(actual_kind)
+                        if expected_parent_kind(&record.kind)
+                            .is_some_and(|expected| *actual_kind != expected) =>
+                    {
+                        rejected.push(import_issue(
+                            record,
+                            &format!(
+                                "parent record {parent_id} is {actual_kind}, expected {}",
+                                expected_parent_kind(&record.kind).unwrap_or_default()
+                            ),
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
+            if let Some(secondary_id) = record.secondary_id.as_deref() {
+                match available_records.get(secondary_id) {
+                    None if secondary_reference_is_record(&record.kind) => {
+                        rejected.push(import_issue(
+                            record,
+                            &format!("secondary record is missing: {secondary_id}"),
+                        ));
+                    }
+                    Some(actual_kind)
+                        if expected_secondary_kind(&record.kind)
+                            .is_some_and(|expected| *actual_kind != expected) =>
+                    {
+                        rejected.push(import_issue(
+                            record,
+                            &format!(
+                                "secondary record {secondary_id} is {actual_kind}, expected {}",
+                                expected_secondary_kind(&record.kind).unwrap_or_default()
+                            ),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if !conflicting.is_empty() || !rejected.is_empty() {
+            return Ok(serde_json::json!({
+                "applied": false,
+                "imported": [],
+                "unchanged": unchanged,
+                "conflicting": conflicting,
+                "rejected": rejected,
+            }));
+        }
+        let first_success_missing = self
+            .get_setting(crate::onboarding::FIRST_SUCCESS_KEY)?
+            .is_none();
+
+        let transaction = self.db.unchecked_transaction()?;
+        let imported_at = Self::now();
+        for record in &pending {
+            transaction.execute(
+                r#"
+                INSERT INTO records(kind,id,parent_id,secondary_id,status,external_id,data,created_at,updated_at)
+                VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                "#,
+                params![
+                    record.kind,
+                    record.id,
+                    record.parent_id,
+                    record.secondary_id,
+                    record.status,
+                    record.external_id,
+                    record.data.to_string(),
+                    record.created_at,
+                    record.updated_at,
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO audit_events(id,aggregate_type,aggregate_id,action,actor,details,created_at) VALUES(?1,?2,?3,'imported',?4,?5,?6)",
+                params![
+                    Self::id(),
+                    record.kind,
+                    record.id,
+                    actor,
+                    serde_json::json!({"external_id": record.external_id}).to_string(),
+                    imported_at,
+                ],
+            )?;
+        }
+        if first_success_missing {
+            if let Some(campaign) = records.iter().find(|record| record.kind == "campaign") {
+                transaction.execute(
+                    "INSERT INTO settings(key,value,updated_at) VALUES(?1,?2,?3)",
+                    params![
+                        crate::onboarding::FIRST_SUCCESS_KEY,
+                        serde_json::json!({
+                            "product_id": "ugc-cli",
+                            "journey_id": "first-use",
+                            "fact": "campaign_record_created",
+                            "campaign_id": campaign.id,
+                            "observed_at": campaign.created_at,
+                        })
+                        .to_string(),
+                        imported_at,
+                    ],
+                )?;
+            }
+        }
+        transaction.commit()?;
+
+        Ok(serde_json::json!({
+            "applied": true,
+            "imported": pending.iter().map(|record| &record.id).collect::<Vec<_>>(),
+            "unchanged": unchanged,
+            "conflicting": [],
+            "rejected": [],
+        }))
     }
 
     pub fn counts(&self) -> Result<Value> {
@@ -528,6 +724,151 @@ impl Store {
         })
     }
 }
+fn import_issue(record: &Record, reason: &str) -> Value {
+    serde_json::json!({
+        "kind": record.kind,
+        "id": record.id,
+        "reason": reason,
+    })
+}
+
+fn validate_import_record(record: &Record) -> Result<()> {
+    if record.kind.trim().is_empty()
+        || record.id.trim().is_empty()
+        || record.status.trim().is_empty()
+    {
+        bail!("import record kind, id, and status are required");
+    }
+    chrono::DateTime::parse_from_rfc3339(&record.created_at)
+        .context("record created_at must be RFC 3339")?;
+    chrono::DateTime::parse_from_rfc3339(&record.updated_at)
+        .context("record updated_at must be RFC 3339")?;
+
+    let canonical = match record.kind.as_str() {
+        "connection" => canonical_import_data::<Connection>(record)?,
+        "campaign" => canonical_import_data::<Campaign>(record)?,
+        "brief" => canonical_import_data::<Brief>(record)?,
+        "creator" => canonical_import_data::<Creator>(record)?,
+        "creator_identity" => canonical_import_data::<CreatorIdentity>(record)?,
+        "assignment" => canonical_import_data::<Assignment>(record)?,
+        "shipment" => canonical_import_data::<Shipment>(record)?,
+        "submission" => canonical_import_data::<Submission>(record)?,
+        "asset" => canonical_import_data::<Asset>(record)?,
+        "usage_rights" => canonical_import_data::<UsageRights>(record)?,
+        "payment" => canonical_import_data::<Payment>(record)?,
+        "message" => canonical_import_data::<Message>(record)?,
+        "publication" => canonical_import_data::<Publication>(record)?,
+        "provider_event" => canonical_import_data::<ProviderEvent>(record)?,
+        "portal_access" => canonical_import_data::<PortalAccess>(record)?,
+        "standalone_publication" => {
+            canonical_import_data::<StandalonePublication>(record)?
+        }
+        "metric_snapshot" => canonical_import_data::<MetricSnapshot>(record)?,
+        "attribution_event" => canonical_import_data::<AttributionEvent>(record)?,
+        "conversation" => canonical_import_data::<Conversation>(record)?,
+        "conversation_message" => canonical_import_data::<ConversationMessage>(record)?,
+        "ledger_transfer" => canonical_import_data::<LedgerTransfer>(record)?,
+        other => bail!("unsupported import record kind: {other}"),
+    };
+    if canonical != record.data {
+        bail!("record data has unsupported, missing, or non-canonical fields");
+    }
+    if record.data.get("id").and_then(Value::as_str) != Some(record.id.as_str()) {
+        bail!("record id does not match data.id");
+    }
+    if let Some(status) = record.data.get("status").and_then(Value::as_str) {
+        if status != record.status {
+            bail!("record status does not match data.status");
+        }
+    }
+    if let Some(created_at) = record.data.get("created_at").and_then(Value::as_str) {
+        if created_at != record.created_at {
+            bail!("record created_at does not match data.created_at");
+        }
+    }
+    if let Some(updated_at) = record.data.get("updated_at").and_then(Value::as_str) {
+        if updated_at != record.updated_at {
+            bail!("record updated_at does not match data.updated_at");
+        }
+    }
+    if let Some(parent_field) = parent_field(&record.kind) {
+        let data_parent = record.data.get(parent_field).and_then(Value::as_str);
+        if data_parent != record.parent_id.as_deref() {
+            bail!("record parent_id does not match data.{parent_field}");
+        }
+    }
+    if let Some(secondary_field) = secondary_field(&record.kind) {
+        let data_secondary = record.data.get(secondary_field).and_then(Value::as_str);
+        if data_secondary != record.secondary_id.as_deref() {
+            bail!("record secondary_id does not match data.{secondary_field}");
+        }
+    }
+    Ok(())
+}
+
+fn canonical_import_data<T>(record: &Record) -> Result<Value>
+where
+    T: DeserializeOwned + Serialize,
+{
+    let value: T = serde_json::from_value(record.data.clone())
+        .with_context(|| format!("invalid {} record data", record.kind))?;
+    serde_json::to_value(value).map_err(Into::into)
+}
+
+fn parent_field(kind: &str) -> Option<&'static str> {
+    match kind {
+        "asset" => Some("submission_id"),
+        "brief" | "publication" | "standalone_publication" => Some("campaign_id"),
+        "conversation" => Some("campaign_id"),
+        "creator_identity" | "portal_access" => Some("creator_id"),
+        "assignment" => Some("campaign_id"),
+        "shipment" | "submission" | "usage_rights" | "payment" | "message"
+        | "ledger_transfer" => Some("assignment_id"),
+        "metric_snapshot" | "attribution_event" => Some("publication_id"),
+        "conversation_message" => Some("conversation_id"),
+        _ => None,
+    }
+}
+
+fn secondary_field(kind: &str) -> Option<&'static str> {
+    match kind {
+        "assignment" | "conversation" | "conversation_message" => Some("creator_id"),
+        "usage_rights" => Some("asset_id"),
+        "publication" => Some("connection_id"),
+        "standalone_publication" => Some("assignment_id"),
+        _ => None,
+    }
+}
+
+fn secondary_reference_is_record(kind: &str) -> bool {
+    secondary_field(kind).is_some()
+}
+
+fn expected_parent_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "brief" | "assignment" | "publication" | "standalone_publication"
+        | "conversation" => Some("campaign"),
+        "creator_identity" | "portal_access" => Some("creator"),
+        "shipment" | "submission" | "usage_rights" | "payment" | "message"
+        | "ledger_transfer" => Some("assignment"),
+        "asset" => Some("submission"),
+        "metric_snapshot" | "attribution_event" => Some("standalone_publication"),
+        "conversation_message" => Some("conversation"),
+        "provider_event" => Some("connection"),
+        _ => None,
+    }
+}
+
+fn expected_secondary_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "assignment" | "conversation" | "conversation_message" => Some("creator"),
+        "usage_rights" => Some("asset"),
+        "publication" => Some("connection"),
+        "standalone_publication" => Some("assignment"),
+        _ => None,
+    }
+}
+
 
 #[cfg(unix)]
 fn protect_database_files(path: &Path) -> Result<()> {
