@@ -603,9 +603,10 @@ fn read_request(stream: &mut TcpStream, limits: ServerLimits) -> Result<Request>
 
 fn read_http_line(reader: &mut impl BufRead, limit: usize) -> Result<String> {
     let mut bytes = Vec::new();
-    let read = reader
-        .take(limit.saturating_add(usize::from(true)))
-        .read_until(b'\n', &mut bytes)?;
+    let take_limit = u64::try_from(limit)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    let read = reader.take(take_limit).read_until(b'\n', &mut bytes)?;
     if read > limit {
         bail!("request header line exceeds standalone server limit");
     }

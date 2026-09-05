@@ -336,8 +336,8 @@ fn protect_asset_directory(path: &Path) -> Result<()> {
     if fs::symlink_metadata(path)?.file_type().is_symlink() {
         bail!("asset directory must not be a symbolic link");
     }
-    let mode = u32::from_str_radix("700", "security".len())?;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+    const OWNER_ONLY_DIRECTORY_MODE: u32 = 0o700;
+    fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY_DIRECTORY_MODE))
         .with_context(|| format!("cannot protect {}", path.display()))
 }
 
@@ -350,8 +350,8 @@ fn protect_asset_directory(_path: &Path) -> Result<()> {
 fn protect_asset_file(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let mode = u32::from_str_radix("600", "security".len())?;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+    const OWNER_ONLY_FILE_MODE: u32 = 0o600;
+    fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))
         .with_context(|| format!("cannot protect {}", path.display()))
 }
 

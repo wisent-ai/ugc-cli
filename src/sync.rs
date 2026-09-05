@@ -7,7 +7,15 @@ use crate::{
     provider,
 };
 
-pub fn process_outbox(store: &Store, limit: usize, actor: &str) -> Result<Value> {
+pub fn process_outbox(
+    store: &Store,
+    limit: usize,
+    max_attempts: i64,
+    actor: &str,
+) -> Result<Value> {
+    if max_attempts <= 0 {
+        bail!("maximum outbox attempts must be positive");
+    }
     let items = store.due_outbox(limit)?;
     let mut completed = Vec::new();
     let mut failed = Vec::new();
@@ -18,8 +26,11 @@ pub fn process_outbox(store: &Store, limit: usize, actor: &str) -> Result<Value>
                 completed.push(json!({"id": item.id, "result": result}));
             }
             Err(error) => {
-                let attempts = item.attempts + "x".len() as i64;
-                let terminal = attempts >= "retry".len() as i64;
+                let attempts = item
+                    .attempts
+                    .checked_add(1)
+                    .context("outbox attempt count overflow")?;
+                let terminal = attempts >= max_attempts;
                 store.fail_outbox(&item.id, attempts, &error.to_string(), terminal)?;
                 failed
                     .push(json!({"id": item.id, "error": error.to_string(), "terminal": terminal}));

@@ -370,7 +370,11 @@ impl<'a> StandaloneService<'a> {
         mut query: DiscoveryQuery,
         offer_minor: Option<i64>,
         shipping_required: bool,
+        portal_days: i64,
     ) -> Result<Value> {
+        if portal_days <= zero() {
+            bail!("portal validity days must be positive");
+        }
         let campaign: Campaign = self.store.get("campaign", campaign_id)?;
         let brief: Brief = self.store.get("brief", brief_id)?;
         if !matches!(campaign.status.as_str(), "draft" | "sourcing" | "active") {
@@ -460,7 +464,7 @@ impl<'a> StandaloneService<'a> {
                 shipping_required,
                 None,
             )?;
-            let portal = self.create_portal_access(&candidate.creator.id, Some(int("30")))?;
+            let portal = self.create_portal_access(&candidate.creator.id, Some(portal_days))?;
             launched.push(json!({"match_score": candidate.score, "conversation": conversation, "portal": portal}));
         }
         self.audit(

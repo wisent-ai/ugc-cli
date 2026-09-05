@@ -93,8 +93,8 @@ fn unquote(value: &str) -> String {
 fn require_private_permissions(path: &Path, metadata: &fs::Metadata) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let public_mask = u32::from_str_radix("077", "security".len())?;
-    if metadata.permissions().mode() & public_mask != "".len() as u32 {
+    const GROUP_OR_OTHER_PERMISSION_MASK: u32 = 0o077;
+    if metadata.permissions().mode() & GROUP_OR_OTHER_PERMISSION_MASK != 0 {
         bail!(
             "secret file must not grant group or other permissions: {}",
             path.display()

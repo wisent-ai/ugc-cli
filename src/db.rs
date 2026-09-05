@@ -17,8 +17,8 @@ use crate::model::{
 };
 
 
-#[serde(deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Record {
     pub kind: String,
     pub id: String,
@@ -331,7 +331,8 @@ impl Store {
         let mut stmt = self.db.prepare(
             "SELECT * FROM outbox WHERE status IN ('pending','retry') AND available_at<=?1 ORDER BY created_at LIMIT ?2"
         )?;
-        let rows = stmt.query_map(params![Self::now(), limit], Self::map_outbox)?;
+        let sql_limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = stmt.query_map(params![Self::now(), sql_limit], Self::map_outbox)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
     }
@@ -874,14 +875,14 @@ fn expected_secondary_kind(kind: &str) -> Option<&'static str> {
 fn protect_database_files(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let mode = u32::from_str_radix("600", "security".len())?;
+    const OWNER_ONLY_FILE_MODE: u32 = 0o600;
     for target in [
         path.to_path_buf(),
         database_sidecar(path, "-wal"),
         database_sidecar(path, "-shm"),
     ] {
         if target.exists() {
-            fs::set_permissions(&target, fs::Permissions::from_mode(mode))
+            fs::set_permissions(&target, fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))
                 .with_context(|| format!("cannot protect {}", target.display()))?;
         }
     }
