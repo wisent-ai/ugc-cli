@@ -930,13 +930,13 @@ enum StandaloneCommand {
         allow_registration: bool,
         #[arg(long)]
         portal_days: Option<i64>,
-        #[arg(long, default_value = "2048")]
+        #[arg(long)]
         max_header_line_bytes: usize,
-        #[arg(long, default_value = "100")]
+        #[arg(long)]
         max_header_count: usize,
-        #[arg(long, default_value = "104857600")]
+        #[arg(long)]
         max_body_bytes: usize,
-        #[arg(long, default_value = "30")]
+        #[arg(long)]
         request_timeout_seconds: u64,
     },
     Export {

@@ -1,0 +1,17 @@
+[automation]
+managed = true
+source_fingerprint = "7fb5b66f13ef275c"
+category = "general"
+copy_status = "missing"
+approved_in = ""
+
+[banner]
+title = "UGC CLI"
+description = ""
+product = "Wisent"
+url = "wisent.com"
+theme = "dark"
+layout = "signal-left"
+art_seed = "ugc-cli"
+width = 1584
+height = 396

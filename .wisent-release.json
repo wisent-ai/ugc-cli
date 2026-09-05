@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "product": "ugc-cli",
+  "releases": true,
+  "version_source": {
+    "kind": "regex",
+    "path": "Cargo.toml",
+    "pattern": "(?m)^version\\s*=\\s*\"(?P<version>[0-9A-Za-z.+-]+)\"\\s*$"
+  },
+  "platforms": {
+    "darwin-arm64": {
+      "runner_platform": "darwin-arm64",
+      "quality": [
+        {
+          "name": "cargo-check",
+          "argv": [
+            "./scripts/release-quality.sh"
+          ]
+        }
+      ],
+      "build": {
+        "argv": [
+          "./scripts/release-build.sh"
+        ]
+      },
+      "stage": {
+        ".wisent-output/ugc-cli": "bin/ugc-cli"
+      }
+    },
+    "linux-amd64": {
+      "runner_platform": "linux-amd64",
+      "quality": [
+        {
+          "name": "cargo-check",
+          "argv": [
+            "./scripts/release-quality.sh"
+          ]
+        }
+      ],
+      "build": {
+        "argv": [
+          "./scripts/release-build.sh"
+        ]
+      },
+      "stage": {
+        ".wisent-output/ugc-cli": "bin/ugc-cli"
+      }
+    }
+  },
+  "inputs": {
+    "echo-web": {
+      "uri": "stado://sources/echo-web/sha256/4a2b107a1bd469f9c2401055014dde6eead087e3aefd7a54fc49f9c483c7f8bc/source.tar.gz",
+      "sha256": "4a2b107a1bd469f9c2401055014dde6eead087e3aefd7a54fc49f9c483c7f8bc",
+      "mount": "echo-web"
+    }
+  },
+  "promotion": {
+    "channels": [
+      "candidate",
+      "stable"
+    ],
+    "reconcile": false
+  }
+}
