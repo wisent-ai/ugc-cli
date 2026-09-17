@@ -417,7 +417,7 @@ impl<'a> StandaloneService<'a> {
             self.store.list("assignment", Some(campaign_id), None)?;
         let mut launched = Vec::new();
         let mut skipped = Vec::new();
-        let mut reserved = 0;
+        let mut reserved: i64 = 0;
         for assignment in assignments
             .iter()
             .filter(|assignment| !matches!(assignment.status.as_str(), "cancelled" | "failed"))
@@ -997,7 +997,7 @@ impl<'a> StandaloneService<'a> {
     pub fn balance(&self, account: &str, currency: &str) -> Result<LedgerBalance> {
         let transfers: Vec<LedgerTransfer> =
             self.store.list("ledger_transfer", None, Some("posted"))?;
-        let mut balance = 0;
+        let mut balance: i64 = 0;
         for transfer in transfers
             .iter()
             .filter(|transfer| transfer.currency.eq_ignore_ascii_case(currency))
@@ -1326,9 +1326,9 @@ impl<'a> StandaloneService<'a> {
             self.store.list("assignment", Some(campaign_id), None)?;
         let mut totals = MetricTotals::default();
         let mut rows = Vec::new();
-        let mut attributed_revenue_minor = 0;
-        let mut attributed_conversions = 0;
-        let mut attributed_events = 0;
+        let mut attributed_revenue_minor: i64 = 0;
+        let mut attributed_conversions: i64 = 0;
+        let mut attributed_events: i64 = 0;
         for publication in &publications {
             let snapshots: Vec<MetricSnapshot> =
                 self.store
