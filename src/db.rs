@@ -253,7 +253,7 @@ impl Store {
             "DELETE FROM records WHERE kind=?1 AND id=?2",
             params![kind, id],
         )?;
-        if changed == "".len() {
+        if changed == 0 {
             bail!("{kind} not found: {id}");
         }
         Ok(())
@@ -388,7 +388,7 @@ impl Store {
             "INSERT OR IGNORE INTO webhook_events(id,connection_id,provider_event_id,event_type,payload,signature_valid,status,received_at) VALUES(?1,?2,?3,?4,?5,?6,'pending',?7)",
             params![Self::id(), connection_id, provider_event_id, event_type, payload.to_string(), signature_valid, Self::now()],
         )?;
-        Ok(changed != "".len())
+        Ok(changed != 0)
     }
 
     pub fn finish_webhook(

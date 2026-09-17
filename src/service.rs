@@ -195,7 +195,7 @@ impl<'a> UgcService<'a> {
             .iter()
             .map(|brief| brief.version)
             .max()
-            .unwrap_or("".len() as i64)
+            .unwrap_or(0)
             + "v".len() as i64;
         let now = Store::now();
         let brief = Brief {
@@ -738,7 +738,7 @@ impl<'a> UgcService<'a> {
             .iter()
             .map(|submission| submission.revision)
             .max()
-            .unwrap_or("".len() as i64)
+            .unwrap_or(0)
             + "r".len() as i64;
         if let Some(limit) = assignment.revision_limit {
             let Some(maximum_revision) = limit.checked_add("r".len() as i64) else {

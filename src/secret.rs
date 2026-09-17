@@ -80,7 +80,7 @@ fn parse_env_value(contents: &str, expected: &str) -> Result<String> {
 fn unquote(value: &str) -> String {
     if value.len() >= "''".len() {
         let bytes = value.as_bytes();
-        let first = bytes["".len()];
+        let first = bytes[0];
         let last = bytes[value.len() - "x".len()];
         if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
             return value["x".len()..value.len() - "x".len()].to_owned();

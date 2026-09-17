@@ -19,6 +19,8 @@ use crate::{
     standalone::{CreatorSeed, StandaloneService},
 };
 
+const HEX_RADIX: u32 = 16;
+
 #[derive(Clone, Copy)]
 pub struct ServerLimits {
     pub header_line_bytes: usize,
@@ -532,11 +534,12 @@ fn portal_page(store: &Store, token: &str, actor: &str) -> Result<Response> {
     html.push_str(&format!(
         r#"<script>
 const portalToken={token_json};
+const RELOAD_DELAY_MS=700;
 async function callPortal(action,payload){{
  const response=await fetch(`/api/portal/${{portalToken}}/${{action}}`,{{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify(payload)}});
  const data=await response.json(); const notice=document.getElementById('notice');
  notice.textContent=response.ok?'Saved successfully':(data.error||'Request failed'); notice.className=response.ok?'ok':'error';
- if(response.ok) setTimeout(()=>location.reload(),700);
+ if(response.ok) setTimeout(()=>location.reload(),RELOAD_DELAY_MS);
 }}
 function replyTo(id){{const body=document.getElementById(`reply-${{id}}`).value;callPortal('reply',{{conversation_id:id,body}});}}
 function acceptConversation(id){{callPortal('accept',{{conversation_id:id}});}}
@@ -688,7 +691,7 @@ fn percent_decode(raw: &str) -> Result<String> {
                 let low = input.next().context("incomplete URL escape")?;
                 let pair = [high, low];
                 let text = std::str::from_utf8(&pair)?;
-                bytes.push(u8::from_str_radix(text, "16".parse()?)?);
+                bytes.push(u8::from_str_radix(text, HEX_RADIX)?);
             }
             other => bytes.push(other),
         }
@@ -700,11 +703,11 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
     }
-    let mut difference = "".len() as u8;
+    let mut difference = 0;
     for (left, right) in left.iter().zip(right) {
         difference |= left ^ right;
     }
-    difference == "".len() as u8
+    difference == 0
 }
 
 fn registration_page() -> String {

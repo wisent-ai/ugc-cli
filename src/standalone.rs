@@ -18,6 +18,25 @@ use crate::{
     service::UgcService,
 };
 
+/// A portal link a creator receives stays valid this long when the caller sets no other span.
+const PORTAL_VALIDITY_DAYS: i64 = 30;
+/// How many creators `discover` returns when the query sets no limit.
+const DEFAULT_DISCOVERY_LIMIT: usize = 20;
+
+// Discovery scoring: every creator starts at the base, each matched filter
+// adds its weight, each evidence signal adds the bonus, and the total is capped.
+const BASE_MATCH_SCORE: i64 = 10;
+const MARKET_WEIGHT: i64 = 20;
+const LANGUAGE_WEIGHT: i64 = 20;
+const NICHE_WEIGHT: i64 = 25;
+const CHANNEL_WEIGHT: i64 = 10;
+const SIGNAL_BONUS: i64 = 5;
+const MAX_MATCH_SCORE: i64 = 100;
+/// An engagement rate at or above this counts as evidence of an audience.
+const STRONG_ENGAGEMENT_RATE: f64 = 0.03;
+/// A response rate at or above this counts as a creator who answers.
+const RESPONSIVE_RATE: f64 = 0.5;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatorSeed {
     pub display_name: String,
@@ -193,7 +212,7 @@ impl<'a> StandaloneService<'a> {
                 metadata,
             )?);
         }
-        let portal = self.create_portal_access(&creator.id, portal_days.or(Some(int("30"))))?;
+        let portal = self.create_portal_access(&creator.id, portal_days.or(Some(PORTAL_VALIDITY_DAYS)))?;
         self.audit("creator", &creator.id, "self_registered", json!({}))?;
         Ok(json!({
             "creator": creator,
@@ -204,10 +223,10 @@ impl<'a> StandaloneService<'a> {
     }
 
     pub fn discover(&self, mut query: DiscoveryQuery) -> Result<Vec<CreatorMatch>> {
-        if query.min_followers.is_some_and(|minimum| minimum < zero()) {
+        if query.min_followers.is_some_and(|minimum| minimum < 0) {
             bail!("minimum followers cannot be negative");
         }
-        if query.max_rate_minor.is_some_and(|maximum| maximum < zero()) {
+        if query.max_rate_minor.is_some_and(|maximum| maximum < 0) {
             bail!("maximum rate cannot be negative");
         }
         if let Some(campaign_id) = &query.campaign_id {
@@ -270,14 +289,14 @@ impl<'a> StandaloneService<'a> {
                 continue;
             }
 
-            let mut score = int("10");
+            let mut score = BASE_MATCH_SCORE;
             let mut matched = Vec::new();
             let mut missing = Vec::new();
             score_filter(
                 &query.markets,
                 &creator.markets,
                 "market",
-                int("20"),
+                MARKET_WEIGHT,
                 &mut score,
                 &mut matched,
                 &mut missing,
@@ -286,7 +305,7 @@ impl<'a> StandaloneService<'a> {
                 &query.languages,
                 &creator.languages,
                 "language",
-                int("20"),
+                LANGUAGE_WEIGHT,
                 &mut score,
                 &mut matched,
                 &mut missing,
@@ -295,7 +314,7 @@ impl<'a> StandaloneService<'a> {
                 &query.niches,
                 &creator.niches,
                 "niche",
-                int("25"),
+                NICHE_WEIGHT,
                 &mut score,
                 &mut matched,
                 &mut missing,
@@ -304,39 +323,39 @@ impl<'a> StandaloneService<'a> {
                 &query.channels,
                 &identity_channels,
                 "channel",
-                int("10"),
+                CHANNEL_WEIGHT,
                 &mut score,
                 &mut matched,
                 &mut missing,
             );
             let engagement = metadata_f64(&creator.metadata, "engagement_rate").unwrap_or_default();
-            if engagement >= decimal("0.03") {
-                score += int("5");
+            if engagement >= STRONG_ENGAGEMENT_RATE {
+                score += SIGNAL_BONUS;
                 matched.push("engagement".into());
             } else {
                 missing.push("engagement evidence".into());
             }
             let completed =
                 metadata_i64(&creator.metadata, "completed_campaigns").unwrap_or_default();
-            if completed > zero() {
-                score += int("5");
+            if completed > 0 {
+                score += SIGNAL_BONUS;
                 matched.push("campaign history".into());
             } else {
                 missing.push("campaign history".into());
             }
             let response = metadata_f64(&creator.metadata, "response_rate").unwrap_or_default();
-            if response >= decimal("0.5") {
-                score += int("5");
+            if response >= RESPONSIVE_RATE {
+                score += SIGNAL_BONUS;
                 matched.push("response rate".into());
             }
             let portfolio = metadata_i64(&creator.metadata, "portfolio_count").unwrap_or_default();
-            if portfolio > zero() {
-                score += int("5");
+            if portfolio > 0 {
+                score += SIGNAL_BONUS;
                 matched.push("portfolio".into());
             } else {
                 missing.push("portfolio".into());
             }
-            score = score.min(int("100"));
+            score = score.min(MAX_MATCH_SCORE);
             matches.push(CreatorMatch {
                 creator,
                 score,
@@ -359,7 +378,7 @@ impl<'a> StandaloneService<'a> {
                 .cmp(&left.score)
                 .then_with(|| left.creator.display_name.cmp(&right.creator.display_name))
         });
-        matches.truncate(query.limit.unwrap_or_else(|| usize_from("20")));
+        matches.truncate(query.limit.unwrap_or_else(|| DEFAULT_DISCOVERY_LIMIT));
         Ok(matches)
     }
 
@@ -372,7 +391,7 @@ impl<'a> StandaloneService<'a> {
         shipping_required: bool,
         portal_days: i64,
     ) -> Result<Value> {
-        if portal_days <= zero() {
+        if portal_days <= 0 {
             bail!("portal validity days must be positive");
         }
         let campaign: Campaign = self.store.get("campaign", campaign_id)?;
@@ -398,7 +417,7 @@ impl<'a> StandaloneService<'a> {
             self.store.list("assignment", Some(campaign_id), None)?;
         let mut launched = Vec::new();
         let mut skipped = Vec::new();
-        let mut reserved = zero();
+        let mut reserved = 0;
         for assignment in assignments
             .iter()
             .filter(|assignment| !matches!(assignment.status.as_str(), "cancelled" | "failed"))
@@ -438,7 +457,7 @@ impl<'a> StandaloneService<'a> {
                 skipped.push(json!({"creator_id": candidate.creator.id, "reason": "no offer or base_rate_minor"}));
                 continue;
             };
-            if compensation <= zero() {
+            if compensation <= 0 {
                 skipped.push(
                     json!({"creator_id": candidate.creator.id, "reason": "offer must be positive"}),
                 );
@@ -509,7 +528,7 @@ impl<'a> StandaloneService<'a> {
         {
             bail!("conversation currency must match campaign currency");
         }
-        if offered_compensation_minor.is_some_and(|amount| amount <= zero()) {
+        if offered_compensation_minor.is_some_and(|amount| amount <= 0) {
             bail!("offered compensation must be positive");
         }
         let now = Store::now();
@@ -686,7 +705,7 @@ impl<'a> StandaloneService<'a> {
             .offered_compensation_minor
             .or_else(|| metadata_i64(&creator.metadata, "base_rate_minor"))
             .context("conversation has no compensation offer")?;
-        if compensation <= zero() {
+        if compensation <= 0 {
             bail!("compensation must be positive");
         }
         let brief: Brief = self.store.get("brief", &brief_id)?;
@@ -721,7 +740,7 @@ impl<'a> StandaloneService<'a> {
 
     pub fn create_portal_access(&self, creator_id: &str, days: Option<i64>) -> Result<Value> {
         let _: Creator = self.store.get("creator", creator_id)?;
-        if days.is_some_and(|days| days <= zero()) {
+        if days.is_some_and(|days| days <= 0) {
             bail!("portal validity days must be positive");
         }
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
@@ -978,7 +997,7 @@ impl<'a> StandaloneService<'a> {
     pub fn balance(&self, account: &str, currency: &str) -> Result<LedgerBalance> {
         let transfers: Vec<LedgerTransfer> =
             self.store.list("ledger_transfer", None, Some("posted"))?;
-        let mut balance = zero();
+        let mut balance = 0;
         for transfer in transfers
             .iter()
             .filter(|transfer| transfer.currency.eq_ignore_ascii_case(currency))
@@ -1140,7 +1159,7 @@ impl<'a> StandaloneService<'a> {
             input.revenue_minor,
             input.spend_minor,
         ];
-        if counters.iter().any(|value| *value < zero()) {
+        if counters.iter().any(|value| *value < 0) {
             bail!("metric counters cannot be negative");
         }
         let previous: Vec<MetricSnapshot> =
@@ -1230,7 +1249,7 @@ impl<'a> StandaloneService<'a> {
         if event_type.trim().is_empty() {
             bail!("attribution event type is required");
         }
-        if value_minor.is_some_and(|value| value < zero()) {
+        if value_minor.is_some_and(|value| value < 0) {
             bail!("attribution value cannot be negative");
         }
         if value_minor.is_some() != currency.is_some() {
@@ -1307,9 +1326,9 @@ impl<'a> StandaloneService<'a> {
             self.store.list("assignment", Some(campaign_id), None)?;
         let mut totals = MetricTotals::default();
         let mut rows = Vec::new();
-        let mut attributed_revenue_minor = zero();
-        let mut attributed_conversions = zero();
-        let mut attributed_events = zero();
+        let mut attributed_revenue_minor = 0;
+        let mut attributed_conversions = 0;
+        let mut attributed_events = 0;
         for publication in &publications {
             let snapshots: Vec<MetricSnapshot> =
                 self.store
@@ -1326,7 +1345,7 @@ impl<'a> StandaloneService<'a> {
             for event in &attribution {
                 attributed_revenue_minor += event.value_minor.unwrap_or_default();
                 if is_conversion_event(&event.event_type) {
-                    attributed_conversions += int("1");
+                    attributed_conversions += 1;
                 }
             }
             rows.push(
@@ -1340,12 +1359,12 @@ impl<'a> StandaloneService<'a> {
         let engagement = totals.likes + totals.comments + totals.shares + totals.saves;
         let engagement_rate = ratio(engagement, totals.views);
         let click_rate = ratio(totals.clicks, totals.views);
-        let canonical_conversions = if attributed_conversions > zero() {
+        let canonical_conversions = if attributed_conversions > 0 {
             attributed_conversions
         } else {
             totals.conversions
         };
-        let canonical_revenue_minor = if attributed_revenue_minor > zero() {
+        let canonical_revenue_minor = if attributed_revenue_minor > 0 {
             attributed_revenue_minor
         } else {
             totals.revenue_minor
@@ -1815,7 +1834,7 @@ impl<'a> StandaloneService<'a> {
         idempotency_key: String,
         reversal_of: Option<String>,
     ) -> Result<LedgerTransfer> {
-        if amount_minor <= zero() {
+        if amount_minor <= 0 {
             bail!("ledger amount must be positive");
         }
         if from_account == to_account {
@@ -2068,7 +2087,7 @@ fn hash_token(token: &str) -> String {
 }
 
 fn ratio(numerator: i64, denominator: i64) -> Option<f64> {
-    (denominator > zero()).then(|| numerator as f64 / denominator as f64)
+    (denominator > 0).then(|| numerator as f64 / denominator as f64)
 }
 
 fn is_conversion_event(event_type: &str) -> bool {
@@ -2086,15 +2105,3 @@ fn unique(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn zero() -> i64 {
-    "".len() as i64
-}
-fn int(value: &str) -> i64 {
-    value.parse().expect("valid internal integer")
-}
-fn decimal(value: &str) -> f64 {
-    value.parse().expect("valid internal decimal")
-}
-fn usize_from(value: &str) -> usize {
-    value.parse().expect("valid internal usize")
-}

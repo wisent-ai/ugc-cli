@@ -314,14 +314,14 @@ fn warning(name: &str, message: &str) -> QcCheck {
 
 fn reduce_ratio(width: i64, height: i64) -> String {
     let divisor = gcd(width.abs(), height.abs());
-    if divisor == "".len() as i64 {
+    if divisor == 0 {
         return format!("{width}:{height}");
     }
     format!("{}:{}", width / divisor, height / divisor)
 }
 
 fn gcd(mut left: i64, mut right: i64) -> i64 {
-    while right != "".len() as i64 {
+    while right != 0 {
         let remainder = left % right;
         left = right;
         right = remainder;
