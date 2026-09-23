@@ -1,11 +1,4 @@
-use anyhow::{Context, Result, bail};
-use serde_json::{Value, json};
-
-use crate::{
-    db::{OutboxItem, Store},
-    model::{Assignment, Connection, Payment, ProviderEvent, Publication, Submission},
-    provider,
-};
+use super::*;
 
 pub fn process_outbox(
     store: &Store,
@@ -40,7 +33,7 @@ pub fn process_outbox(
     Ok(json!({"completed": completed, "failed": failed}))
 }
 
-fn process_item(store: &Store, item: &OutboxItem, actor: &str) -> Result<Value> {
+pub(crate) fn process_item(store: &Store, item: &OutboxItem, actor: &str) -> Result<Value> {
     let connection_id = item
         .connection_id
         .as_deref()
@@ -232,7 +225,7 @@ pub fn apply_event(
     )
 }
 
-fn apply_publication_event(store: &Store, event: &ProviderEvent) -> Result<()> {
+pub(crate) fn apply_publication_event(store: &Store, event: &ProviderEvent) -> Result<()> {
     let mut publication: Publication = store
         .find_external("publication", &event.aggregate_external_id)?
         .context("publication event references unknown external campaign")?;
@@ -256,7 +249,7 @@ fn apply_publication_event(store: &Store, event: &ProviderEvent) -> Result<()> {
     )
 }
 
-fn apply_assignment_event(store: &Store, event: &ProviderEvent) -> Result<()> {
+pub(crate) fn apply_assignment_event(store: &Store, event: &ProviderEvent) -> Result<()> {
     let mut assignment: Assignment =
         match store.find_external("assignment", &event.aggregate_external_id)? {
             Some(item) => item,
@@ -282,61 +275,5 @@ fn apply_assignment_event(store: &Store, event: &ProviderEvent) -> Result<()> {
         assignment.external_assignment_id.as_deref(),
         &assignment,
         &assignment.created_at,
-    )
-}
-
-fn apply_submission_event(store: &Store, event: &ProviderEvent) -> Result<()> {
-    let mut submission: Submission =
-        match store.find_external("submission", &event.aggregate_external_id)? {
-            Some(item) => item,
-            None => serde_json::from_value(
-                event
-                    .payload
-                    .get("canonical")
-                    .cloned()
-                    .context("new submission event needs payload.canonical")?,
-            )?,
-        };
-    submission.external_submission_id = Some(event.aggregate_external_id.clone());
-    if let Some(status) = event.payload.get("status").and_then(Value::as_str) {
-        submission.status = status.into();
-    }
-    store.put(
-        "submission",
-        &submission.id,
-        Some(&submission.assignment_id),
-        None,
-        &submission.status,
-        submission.external_submission_id.as_deref(),
-        &submission,
-        &submission.submitted_at,
-    )
-}
-
-fn apply_payment_event(store: &Store, event: &ProviderEvent) -> Result<()> {
-    let mut payment: Payment = store
-        .find_external("payment", &event.aggregate_external_id)?
-        .or_else(|| {
-            event
-                .payload
-                .get("canonical")
-                .cloned()
-                .and_then(|value| serde_json::from_value(value).ok())
-        })
-        .context("payment event references unknown payment and has no canonical payload")?;
-    payment.external_payment_id = Some(event.aggregate_external_id.clone());
-    if let Some(status) = event.payload.get("status").and_then(Value::as_str) {
-        payment.status = status.into();
-    }
-    payment.updated_at = Store::now();
-    store.put(
-        "payment",
-        &payment.id,
-        Some(&payment.assignment_id),
-        None,
-        &payment.status,
-        Some(&payment.idempotency_key),
-        &payment,
-        &payment.created_at,
     )
 }

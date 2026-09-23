@@ -1,20 +1,4 @@
-use std::{
-    fs::{self, File},
-    io::{BufRead, BufReader, BufWriter, Write},
-    path::{Path, PathBuf},
-    process::Command,
-};
-
-use anyhow::{Context, Result, bail};
-use chrono::Duration;
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
-
-use crate::{
-    db::Store,
-    model::{Asset, QcCheck, QcReport, Submission},
-};
+use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct QcPolicy {
@@ -242,7 +226,7 @@ pub fn run_qc(store: &Store, asset_id: &str, policy: &QcPolicy, actor: &str) -> 
     Ok(report)
 }
 
-fn probe_media(path: &Path) -> Result<Value> {
+pub(crate) fn probe_media(path: &Path) -> Result<Value> {
     let output = Command::new("ffprobe")
         .args([
             "-v",
@@ -285,77 +269,9 @@ fn probe_media(path: &Path) -> Result<Value> {
     }))
 }
 
-fn safe_extension(value: &str) -> bool {
+pub(crate) fn safe_extension(value: &str) -> bool {
     !value.is_empty()
         && value
             .chars()
             .all(|character| character.is_ascii_alphanumeric())
-}
-
-fn check(name: &str, passed: bool, passed_message: &str, failed_message: &str) -> QcCheck {
-    QcCheck {
-        name: name.into(),
-        status: if passed { "PASS".into() } else { "FAIL".into() },
-        message: if passed {
-            passed_message.into()
-        } else {
-            failed_message.into()
-        },
-    }
-}
-
-fn warning(name: &str, message: &str) -> QcCheck {
-    QcCheck {
-        name: name.into(),
-        status: "WARN".into(),
-        message: message.into(),
-    }
-}
-
-fn reduce_ratio(width: i64, height: i64) -> String {
-    let divisor = gcd(width.abs(), height.abs());
-    if divisor == 0 {
-        return format!("{width}:{height}");
-    }
-    format!("{}:{}", width / divisor, height / divisor)
-}
-
-fn gcd(mut left: i64, mut right: i64) -> i64 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left
-}
-
-#[cfg(unix)]
-fn protect_asset_directory(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        bail!("asset directory must not be a symbolic link");
-    }
-    const OWNER_ONLY_DIRECTORY_MODE: u32 = 0o700;
-    fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY_DIRECTORY_MODE))
-        .with_context(|| format!("cannot protect {}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn protect_asset_directory(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn protect_asset_file(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    const OWNER_ONLY_FILE_MODE: u32 = 0o600;
-    fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))
-        .with_context(|| format!("cannot protect {}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn protect_asset_file(_path: &Path) -> Result<()> {
-    Ok(())
 }
