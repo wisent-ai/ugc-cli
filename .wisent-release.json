@@ -13,16 +13,15 @@
       "quality": [
         {
           "name": "cargo-check",
-          "argv": [
-            "./scripts/release-quality.sh"
-          ]
+          "argv": ["stado", "product", "cargo", "check"]
         }
       ],
       "build": {
-        "argv": [
-          "./scripts/release-build.sh"
-        ]
+        "argv": ["stado", "product", "cargo", "stage", "--bin", "ugc-cli"]
       },
+      "tests": [
+        {"name": "cargo-test", "argv": ["stado", "product", "cargo", "test"]}
+      ],
       "stage": {
         ".wisent-output/ugc-cli": "bin/ugc-cli"
       }
@@ -32,28 +31,21 @@
       "quality": [
         {
           "name": "cargo-check",
-          "argv": [
-            "./scripts/release-quality.sh"
-          ]
+          "argv": ["stado", "product", "cargo", "check"]
         }
       ],
       "build": {
-        "argv": [
-          "./scripts/release-build.sh"
-        ]
+        "argv": ["stado", "product", "cargo", "stage", "--bin", "ugc-cli"]
       },
+      "tests": [
+        {"name": "cargo-test", "argv": ["stado", "product", "cargo", "test"]}
+      ],
       "stage": {
         ".wisent-output/ugc-cli": "bin/ugc-cli"
       }
     }
   },
-  "inputs": {
-    "echo-web": {
-      "uri": "stado://sources/echo-web/sha256/4a2b107a1bd469f9c2401055014dde6eead087e3aefd7a54fc49f9c483c7f8bc/source.tar.gz",
-      "sha256": "4a2b107a1bd469f9c2401055014dde6eead087e3aefd7a54fc49f9c483c7f8bc",
-      "mount": "echo-web"
-    }
-  },
+  "inputs": {},
   "promotion": {
     "channels": [
       "candidate",
