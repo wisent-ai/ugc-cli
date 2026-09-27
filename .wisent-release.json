@@ -13,14 +13,14 @@
       "quality": [
         {
           "name": "cargo-check",
-          "argv": ["stado", "product", "cargo", "check"]
+          "argv": ["cargo", "check", "--locked"]
         }
       ],
       "build": {
         "argv": ["stado", "product", "cargo", "stage", "--bin", "ugc-cli"]
       },
       "tests": [
-        {"name": "cargo-test", "argv": ["stado", "product", "cargo", "test"]}
+        {"name": "cargo-test", "argv": ["cargo", "test", "--locked"]}
       ],
       "stage": {
         ".wisent-output/ugc-cli": "bin/ugc-cli"
@@ -31,14 +31,14 @@
       "quality": [
         {
           "name": "cargo-check",
-          "argv": ["stado", "product", "cargo", "check"]
+          "argv": ["cargo", "check", "--locked"]
         }
       ],
       "build": {
         "argv": ["stado", "product", "cargo", "stage", "--bin", "ugc-cli"]
       },
       "tests": [
-        {"name": "cargo-test", "argv": ["stado", "product", "cargo", "test"]}
+        {"name": "cargo-test", "argv": ["cargo", "test", "--locked"]}
       ],
       "stage": {
         ".wisent-output/ugc-cli": "bin/ugc-cli"
