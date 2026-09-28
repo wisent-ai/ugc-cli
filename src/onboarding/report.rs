@@ -1,10 +1,10 @@
 use super::*;
 
 impl Report {
-    pub(crate) fn new(definition: &Value, db_path: &Path, reset: bool, json: bool) -> Self {
+    pub(crate) fn new(definition: &Value, state_dir: &Path, reset: bool, json: bool) -> Self {
         Self {
             journey_version: string_field(definition, "journey_version").unwrap_or_default(),
-            state_path: state_path(db_path),
+            state_path: state_path(state_dir),
             reset,
             json,
             steps: Vec::new(),

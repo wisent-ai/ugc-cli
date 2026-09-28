@@ -148,13 +148,13 @@ impl Store {
             .get_setting(crate::onboarding::FIRST_SUCCESS_KEY)?
             .is_none();
 
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = self.db.transaction()?;
         let imported_at = Self::now();
         for record in &pending {
             transaction.execute(
                 r#"
                 INSERT INTO records(kind,id,parent_id,secondary_id,status,external_id,data,created_at,updated_at)
-                VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
                 "#,
                 params![
                     record.kind,
@@ -169,7 +169,7 @@ impl Store {
                 ],
             )?;
             transaction.execute(
-                "INSERT INTO audit_events(id,aggregate_type,aggregate_id,action,actor,details,created_at) VALUES(?1,?2,?3,'imported',?4,?5,?6)",
+                "INSERT INTO audit_events(id,aggregate_type,aggregate_id,action,actor,details,created_at) VALUES($1,$2,$3,'imported',$4,$5,$6)",
                 params![
                     Self::id(),
                     record.kind,
@@ -183,7 +183,7 @@ impl Store {
         if first_success_missing {
             if let Some(campaign) = records.iter().find(|record| record.kind == "campaign") {
                 transaction.execute(
-                    "INSERT INTO settings(key,value,updated_at) VALUES(?1,?2,?3)",
+                    "INSERT INTO settings(key,value,updated_at) VALUES($1,$2,$3)",
                     params![
                         crate::onboarding::FIRST_SUCCESS_KEY,
                         serde_json::json!({
@@ -213,7 +213,7 @@ impl Store {
         let mut stmt = self
             .db
             .prepare("SELECT kind,COUNT(*) AS count FROM records GROUP BY kind ORDER BY kind")?;
-        let rows = stmt.query_map([], |row| {
+        let rows = stmt.query_map(params![], |row| {
             Ok((row.get::<_, String>("kind")?, row.get::<_, i64>("count")?))
         })?;
         let mut map = serde_json::Map::new();
@@ -223,7 +223,7 @@ impl Store {
         }
         Ok(Value::Object(map))
     }
-    pub(crate) fn map_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<Record> {
+    pub(crate) fn map_record(row: &Row<'_>) -> stado_database::sync::Result<Record> {
         let data: String = row.get("data")?;
         Ok(Record {
             kind: row.get("kind")?,
@@ -237,7 +237,7 @@ impl Store {
             updated_at: row.get("updated_at")?,
         })
     }
-    pub(crate) fn map_outbox(row: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxItem> {
+    pub(crate) fn map_outbox(row: &Row<'_>) -> stado_database::sync::Result<OutboxItem> {
         let payload: String = row.get("payload")?;
         Ok(OutboxItem {
             id: row.get("id")?,

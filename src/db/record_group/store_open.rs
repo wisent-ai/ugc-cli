@@ -1,85 +1,85 @@
 use super::*;
 
+/// The ledger's tables in the fleet database. Every statement is idempotent,
+/// so every process that opens the ledger brings the schema up to date.
+const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS records (
+    kind TEXT NOT NULL,
+    id TEXT PRIMARY KEY,
+    parent_id TEXT,
+    secondary_id TEXT,
+    status TEXT NOT NULL,
+    external_id TEXT,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS records_kind_parent ON records(kind, parent_id);
+CREATE INDEX IF NOT EXISTS records_kind_secondary ON records(kind, secondary_id);
+CREATE INDEX IF NOT EXISTS records_kind_status ON records(kind, status);
+CREATE UNIQUE INDEX IF NOT EXISTS records_external_unique
+    ON records(kind, external_id) WHERE external_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS outbox (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    aggregate_type TEXT NOT NULL,
+    aggregate_id TEXT NOT NULL,
+    connection_id TEXT,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts BIGINT NOT NULL DEFAULT 0,
+    available_at TEXT NOT NULL,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS outbox_due ON outbox(status, available_at);
+
+CREATE TABLE IF NOT EXISTS webhook_events (
+    id TEXT PRIMARY KEY,
+    connection_id TEXT NOT NULL,
+    provider_event_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    signature_valid BOOLEAN NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    received_at TEXT NOT NULL,
+    processed_at TEXT,
+    UNIQUE(connection_id, provider_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id TEXT PRIMARY KEY,
+    aggregate_type TEXT NOT NULL,
+    aggregate_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    details TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audit_aggregate ON audit_events(aggregate_type, aggregate_id, created_at);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"#;
+
 impl Store {
-    pub fn open(path: &Path) -> Result<Self> {
-        if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-            bail!("database path must not be a symbolic link");
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("cannot create {}", parent.display()))?;
-        }
-        let db = Sqlite::open(path).with_context(|| format!("cannot open {}", path.display()))?;
-        db.execute_batch(
-            r#"
-            PRAGMA journal_mode = WAL;
-            PRAGMA foreign_keys = ON;
-            CREATE TABLE IF NOT EXISTS records (
-                kind TEXT NOT NULL,
-                id TEXT PRIMARY KEY,
-                parent_id TEXT,
-                secondary_id TEXT,
-                status TEXT NOT NULL,
-                external_id TEXT,
-                data TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS records_kind_parent ON records(kind, parent_id);
-            CREATE INDEX IF NOT EXISTS records_kind_secondary ON records(kind, secondary_id);
-            CREATE INDEX IF NOT EXISTS records_kind_status ON records(kind, status);
-            CREATE UNIQUE INDEX IF NOT EXISTS records_external_unique
-                ON records(kind, external_id) WHERE external_id IS NOT NULL;
+    /// The fleet database `ugc-cli`, as Stado declares it.
+    pub const DATABASE: &'static str = "ugc-cli";
 
-            CREATE TABLE IF NOT EXISTS outbox (
-                id TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                aggregate_type TEXT NOT NULL,
-                aggregate_id TEXT NOT NULL,
-                connection_id TEXT,
-                payload TEXT NOT NULL,
-                status TEXT NOT NULL,
-                attempts INTEGER NOT NULL DEFAULT 0,
-                available_at TEXT NOT NULL,
-                last_error TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS outbox_due ON outbox(status, available_at);
-
-            CREATE TABLE IF NOT EXISTS webhook_events (
-                id TEXT PRIMARY KEY,
-                connection_id TEXT NOT NULL,
-                provider_event_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                signature_valid INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                error TEXT,
-                received_at TEXT NOT NULL,
-                processed_at TEXT,
-                UNIQUE(connection_id, provider_event_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS audit_events (
-                id TEXT PRIMARY KEY,
-                aggregate_type TEXT NOT NULL,
-                aggregate_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                actor TEXT NOT NULL,
-                details TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS audit_aggregate ON audit_events(aggregate_type, aggregate_id, created_at);
-
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            "#,
-        )?;
-        protect_database_files(path)?;
+    /// Reach the fleet database through Stado and Skarbiec and bring its
+    /// schema up to date. Stado and the credential bearer are found under
+    /// `UGC_FLEET_HOME`, else `HOME`; a refusal names the step that failed.
+    pub fn open() -> Result<Self> {
+        let database = stado_database::FleetDatabase::for_product(Self::DATABASE, "UGC_FLEET_HOME")?;
+        let db = Client::connect(&database)?;
+        db.execute_batch(SCHEMA)
+            .context("bringing the ugc-cli schema in the fleet database up to date")?;
         Ok(Self { db })
     }
     pub fn id() -> String {
@@ -104,7 +104,7 @@ impl Store {
         self.db.execute(
             r#"
             INSERT INTO records(kind,id,parent_id,secondary_id,status,external_id,data,created_at,updated_at)
-            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
             ON CONFLICT(id) DO UPDATE SET
                 parent_id=excluded.parent_id,
                 secondary_id=excluded.secondary_id,
@@ -121,7 +121,7 @@ impl Store {
         let raw: Option<String> = self
             .db
             .query_row(
-                "SELECT data FROM records WHERE kind=?1 AND id=?2",
+                "SELECT data FROM records WHERE kind=$1 AND id=$2",
                 params![kind, id],
                 |row| row.get("data"),
             )
@@ -134,7 +134,7 @@ impl Store {
     pub fn get_record(&self, kind: &str, id: &str) -> Result<Record> {
         self.db
             .query_row(
-                "SELECT * FROM records WHERE kind=?1 AND id=?2",
+                "SELECT * FROM records WHERE kind=$1 AND id=$2",
                 params![kind, id],
                 Self::map_record,
             )
@@ -149,7 +149,7 @@ impl Store {
         let raw: Option<String> = self
             .db
             .query_row(
-                "SELECT data FROM records WHERE kind=?1 AND external_id=?2",
+                "SELECT data FROM records WHERE kind=$1 AND external_id=$2",
                 params![kind, external_id],
                 |row| row.get("data"),
             )
@@ -163,14 +163,14 @@ impl Store {
         parent_id: Option<&str>,
         status: Option<&str>,
     ) -> Result<Vec<T>> {
-        let mut sql = String::from("SELECT data FROM records WHERE kind=?1");
+        let mut sql = String::from("SELECT data FROM records WHERE kind=$1");
         if parent_id.is_some() {
-            sql.push_str(" AND parent_id=?2");
+            sql.push_str(" AND parent_id=$2");
             if status.is_some() {
-                sql.push_str(" AND status=?3");
+                sql.push_str(" AND status=$3");
             }
         } else if status.is_some() {
-            sql.push_str(" AND status=?2");
+            sql.push_str(" AND status=$2");
         }
         sql.push_str(" ORDER BY created_at DESC");
         let mut stmt = self.db.prepare(&sql)?;
@@ -180,9 +180,7 @@ impl Store {
             (None, Some(state)) => vec![kind.into(), state.into()],
             (None, None) => vec![kind.into()],
         };
-        let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| {
-            row.get::<_, String>("data")
-        })?;
+        let rows = stmt.query_map(texts(&values), |row| row.get::<_, String>("data"))?;
         let mut output = Vec::new();
         for row in rows {
             output.push(serde_json::from_str(&row?)?);
@@ -191,7 +189,7 @@ impl Store {
     }
     pub fn delete(&self, kind: &str, id: &str) -> Result<()> {
         let changed = self.db.execute(
-            "DELETE FROM records WHERE kind=?1 AND id=?2",
+            "DELETE FROM records WHERE kind=$1 AND id=$2",
             params![kind, id],
         )?;
         if changed == 0 {
@@ -208,7 +206,7 @@ impl Store {
         details: &Value,
     ) -> Result<()> {
         self.db.execute(
-            "INSERT INTO audit_events(id,aggregate_type,aggregate_id,action,actor,details,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            "INSERT INTO audit_events(id,aggregate_type,aggregate_id,action,actor,details,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
             params![Self::id(), aggregate_type, aggregate_id, action, actor, details.to_string(), Self::now()],
         )?;
         Ok(())
@@ -220,11 +218,11 @@ impl Store {
     ) -> Result<Vec<Value>> {
         let (sql, values): (&str, Vec<String>) = match (aggregate_type, aggregate_id) {
             (Some(kind), Some(id)) => (
-                "SELECT * FROM audit_events WHERE aggregate_type=?1 AND aggregate_id=?2 ORDER BY created_at DESC",
+                "SELECT * FROM audit_events WHERE aggregate_type=$1 AND aggregate_id=$2 ORDER BY created_at DESC",
                 vec![kind.into(), id.into()],
             ),
             (Some(kind), None) => (
-                "SELECT * FROM audit_events WHERE aggregate_type=?1 ORDER BY created_at DESC",
+                "SELECT * FROM audit_events WHERE aggregate_type=$1 ORDER BY created_at DESC",
                 vec![kind.into()],
             ),
             _ => (
@@ -233,7 +231,7 @@ impl Store {
             ),
         };
         let mut stmt = self.db.prepare(sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| {
+        let rows = stmt.query_map(texts(&values), |row| {
             let details: String = row.get("details")?;
             Ok(serde_json::json!({
                 "id": row.get::<_, String>("id")?,
@@ -245,7 +243,7 @@ impl Store {
                 "created_at": row.get::<_, String>("created_at")?,
             }))
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
+        rows.collect::<stado_database::sync::Result<Vec<_>>>()
             .map_err(Into::into)
     }
     pub fn enqueue(
@@ -259,18 +257,18 @@ impl Store {
         let id = Self::id();
         let now = Self::now();
         self.db.execute(
-            "INSERT INTO outbox(id,kind,aggregate_type,aggregate_id,connection_id,payload,status,attempts,available_at,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,'pending',0,?7,?7,?7)",
+            "INSERT INTO outbox(id,kind,aggregate_type,aggregate_id,connection_id,payload,status,attempts,available_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'pending',0,$7,$7,$7)",
             params![id, kind, aggregate_type, aggregate_id, connection_id, payload.to_string(), now],
         )?;
         Ok(id)
     }
     pub fn due_outbox(&self, limit: usize) -> Result<Vec<OutboxItem>> {
         let mut stmt = self.db.prepare(
-            "SELECT * FROM outbox WHERE status IN ('pending','retry') AND available_at<=?1 ORDER BY created_at LIMIT ?2"
+            "SELECT * FROM outbox WHERE status IN ('pending','retry') AND available_at<=$1 ORDER BY created_at LIMIT $2"
         )?;
         let sql_limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = stmt.query_map(params![Self::now(), sql_limit], Self::map_outbox)?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
+        rows.collect::<stado_database::sync::Result<Vec<_>>>()
             .map_err(Into::into)
     }
 }

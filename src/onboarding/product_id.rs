@@ -40,7 +40,7 @@ pub(crate) fn record_first_success(store: &Store, campaign: &Campaign) -> Result
 }
 
 pub(crate) fn run(
-    db_path: &Path,
+    state_dir: &Path,
     actor: &str,
     store: &Store,
     reset: bool,
@@ -50,9 +50,9 @@ pub(crate) fn run(
 ) -> Result<()> {
     let definition = canonical_definition()?;
     let revision = format!("{PRODUCT_ID}-{}", env!("CARGO_PKG_VERSION"));
-    let progress = state_path(db_path);
-    let mut state = load_or_start_state(&progress, db_path, actor, &definition, &revision, reset)?;
-    let mut report = Report::new(&definition, db_path, reset, json_output);
+    let progress = state_path(state_dir);
+    let mut state = load_or_start_state(&progress, actor, &definition, &revision, reset)?;
+    let mut report = Report::new(&definition, state_dir, reset, json_output);
     // Machine output and a piped stdin have no reader to press Enter.
     let unattended = yes || json_output || !io::stdin().is_terminal();
 
@@ -75,8 +75,8 @@ pub(crate) fn run(
             Some("first_action") => {
                 let counts = store.counts()?;
                 report.note(&format!(
-                    "Ledger {} is open and holds: {counts}",
-                    db_path.display()
+                    "Ledger fleet database {} is open and holds: {counts}",
+                    Store::DATABASE
                 ));
                 let evidence = fact(LEDGER_FACT);
                 advance(&definition, &screen, &mut state, &evidence, &revision, &progress)?

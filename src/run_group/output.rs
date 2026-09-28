@@ -9,12 +9,6 @@ pub(crate) fn parse_json(input: &str) -> Result<Value> {
     serde_json::from_str(input).with_context(|| format!("invalid JSON: {input}"))
 }
 
-pub(crate) fn default_db_path() -> PathBuf {
-    env::var_os("UGC_DB_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(".ugc/ugc.db"))
-}
-
 pub(crate) fn default_asset_dir() -> PathBuf {
     env::var_os("UGC_ASSET_DIR")
         .map(PathBuf::from)

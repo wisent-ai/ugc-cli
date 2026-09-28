@@ -58,16 +58,16 @@ UGC CLI serves:
 Use the exact record array produced by `standalone export` to start onboarding from data you already own:
 
 ```bash
-ugc-cli --db restored/ugc.db onboarding --reset --import ugc-backup.json
+ugc-cli onboarding --reset --import ugc-backup.json
 ```
 
 The walkthrough completes only after the destination accepts the import and reads back a campaign record. Without `--import`, onboarding remains usable with an empty ledger and waits for your first real campaign. The reusable command outside onboarding is:
 
 ```bash
-ugc-cli --db restored/ugc.db standalone import ugc-backup.json
+ugc-cli standalone import ugc-backup.json
 ```
 
-Both commands call the same store import operation. It validates every record, typed payload, identity, timestamp, and relationship before one SQLite transaction writes records and audit entries. Exact records remain unchanged; any conflicting, unsupported, missing, lossy, or noncanonical record refuses the entire import. Rights and payment rows remain ledger data only: import never settles payment, publishes, contacts a creator, or enqueues provider work. Assets remain separate content-addressed files under `UGC_ASSET_DIR` and must be copied with the JSON export.
+Both commands call the same store import operation. It validates every record, typed payload, identity, timestamp, and relationship before one transaction in the fleet database writes records and audit entries. Exact records remain unchanged; any conflicting, unsupported, missing, lossy, or noncanonical record refuses the entire import. Rights and payment rows remain ledger data only: import never settles payment, publishes, contacts a creator, or enqueues provider work. Assets remain separate content-addressed files under `UGC_ASSET_DIR` and must be copied with the JSON export.
 
 The root operator screen served by `ugc-cli standalone serve` submits the same record array to authenticated `POST /api/import`; success follows commit, conflicts return 409, and malformed input returns 400. The operation returns `imported`, `unchanged`, `conflicting`, and `rejected` record lists and never prints credential contents.
 
@@ -77,7 +77,8 @@ The root operator screen served by `ugc-cli standalone serve` submits the same r
 
 - local campaign, brief, creator, identity, assignment, shipment, submission,
   asset, rights, payment, publication, attribution, and audit records;
-- bundled SQLite system of record and content-addressed local asset storage;
+- the fleet database `ugc-cli` as system of record, reached through Stado,
+  and content-addressed local asset storage;
 - standalone creator discovery, outreach conversations, portal tokens, workflow,
   dashboard, import/export, and local HTTP surfaces;
 - deterministic matching and explicit opt-out handling;
@@ -107,7 +108,7 @@ The root operator screen served by `ugc-cli standalone serve` submits the same r
 
 | Surface | Requirement | Current state |
 |---|---|---|
-| Local CLI and SQLite ledger | Rust compatible with `Cargo.lock` | Implemented |
+| CLI and fleet ledger | Rust compatible with `Cargo.lock`; Stado declaring `ugc-cli` and the `ugc-cli-database-client` bearer | Implemented |
 | Local asset store | writable private directory | Implemented |
 | Standalone portal/API | explicit loopback bind and local workspace | Implemented local surface |
 | Manual provider adapter/outbox | explicit connection | Implemented contract |
@@ -171,7 +172,7 @@ conversation -> submission -> content-addressed asset -> QC -> human review
                          └──────── audit / export ──────┘
 ```
 
-SQLite is authoritative for the local operational ledger. The asset directory is
+The fleet database `ugc-cli` is authoritative for the operational ledger. The asset directory is
 content-addressed storage. Provider connections translate explicit external
 events through an outbox/webhook boundary. External marketplaces, carriers,
 payment processors, publication platforms, and legal records remain authoritative
@@ -179,43 +180,54 @@ for their own facts.
 
 ## Quick start
 
-This path creates a disposable local database, records one campaign, and lists
-it. It contacts no provider, sends no message, moves no money, and publishes
-nothing.
+This path records one campaign in the fleet ledger and lists it. It contacts no
+provider, sends no message, moves no money, and publishes nothing.
 
 ### Prerequisites
 
 - Git;
 - the Rust toolchain compatible with `Cargo.lock`;
-- a private local directory for any real creator or campaign data.
+- Stado on this host declaring the database `ugc-cli` for consumer `ugc-cli`,
+  and the Skarbiec bearer of consumer `ugc-cli-database-client` in
+  `~/.stado/ugc-cli-database-client-skarbiec-token`, which may read
+  `ugc-cli-database#pooler_url` and `ugc-cli-database#ca_certificate`;
+- a private local directory for assets.
 
 ```bash
 git clone https://github.com/wisent-ai/ugc-cli.git
 cd ugc-cli
 cargo build --locked
-export UGC_DB="${TMPDIR:-/tmp}/ugc-cli-quickstart.sqlite"
-cargo run --locked -- --db "$UGC_DB" campaign create \
-  --name "Disposable quick start" \
+cargo run --locked -- campaign create \
+  --name "Quick start" \
   --brand "Example brand" \
   --product "Example product" \
   --markets US \
   --languages en \
   --channels short-video \
   --currency USD
-cargo run --locked -- --db "$UGC_DB" campaign list
+cargo run --locked -- campaign list
 ```
 
-Expected result: `campaign create` prints the new local record and
-`campaign list` returns it from the same SQLite file. Remove the disposable file
-when finished.
+Expected result: `campaign create` prints the new record and `campaign list`
+returns it from the fleet database.
+
+Every command reaches the ledger in four steps, and a failure names the step:
+`stado database resolve ugc-cli --consumer ugc-cli --json` names the credential
+item; `stado service directory connect skarbiec --consumer ugc-cli --json`
+names the Skarbiec route; `stado secrets get ugc-cli-database --field
+pooler_url` and `--field ca_certificate`, read as `ugc-cli-database-client`,
+give the pooler URL and root certificate; the connection is verified against
+that certificate. A refusal reads `the fleet database could not be reached at
+step <step>: <Stado's answer>`. Stado and the bearer are found under
+`UGC_FLEET_HOME`, else `HOME`.
 
 Never use a repository checkout or shared temporary directory for real creator
 personal data, messages, addresses, media, contracts, or payout records.
 
 ## Primary interfaces
 
-The installed executable is `ugc-cli` and accepts global `--db`, `--asset-dir`,
-and `--actor` arguments.
+The installed executable is `ugc-cli` and accepts global `--asset-dir` and
+`--actor` arguments.
 
 | Command family | Contract |
 |---|---|
@@ -248,9 +260,9 @@ Use `ugc-cli <family> --help` for exact subcommands and required fields.
 
 ## Operational model
 
-- **Configuration:** explicit database, asset directory, actor, and optional
-  provider/service settings.
-- **State:** local SQLite ledger, content-addressed files, hashed portal tokens,
+- **Configuration:** the fleet database resolved through Stado, the asset
+  directory, actor, and optional provider/service settings.
+- **State:** the fleet ledger, content-addressed files, hashed portal tokens,
   outbox, webhook log, and audit records.
 - **Credentials:** references belong in Skarbiec or provider-specific secret
   stores; never export secret values with campaign data.

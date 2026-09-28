@@ -2,7 +2,7 @@ use super::*;
 
 #[allow(unused_variables)]
 pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         StandaloneCommand::ImportCreators { file } => {
             let seeds: Vec<CreatorSeed> = serde_json::from_slice(

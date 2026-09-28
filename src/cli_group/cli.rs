@@ -8,8 +8,6 @@ use super::*;
 )]
 pub(crate) struct Cli {
     #[arg(long, global = true)]
-    pub(crate) db: Option<PathBuf>,
-    #[arg(long, global = true)]
     pub(crate) asset_dir: Option<PathBuf>,
     #[arg(long, global = true, default_value = "cli")]
     pub(crate) actor: String,

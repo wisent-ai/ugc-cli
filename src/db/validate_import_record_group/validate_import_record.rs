@@ -136,33 +136,3 @@ pub(crate) fn expected_secondary_kind(kind: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
-#[cfg(unix)]
-pub(crate) fn protect_database_files(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    const OWNER_ONLY_FILE_MODE: u32 = 0o600;
-    for target in [
-        path.to_path_buf(),
-        database_sidecar(path, "-wal"),
-        database_sidecar(path, "-shm"),
-    ] {
-        if target.exists() {
-            fs::set_permissions(&target, fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))
-                .with_context(|| format!("cannot protect {}", target.display()))?;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-pub(crate) fn database_sidecar(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_os_string();
-    name.push(suffix);
-    PathBuf::from(name)
-}
-
-#[cfg(not(unix))]
-pub(crate) fn protect_database_files(_path: &Path) -> Result<()> {
-    Ok(())
-}

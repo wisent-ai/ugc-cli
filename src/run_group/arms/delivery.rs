@@ -2,7 +2,7 @@ use super::*;
 
 #[allow(unused_variables)]
 pub(crate) fn run_shipment(command: ShipmentCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         ShipmentCommand::Update {
             assignment,
@@ -33,7 +33,7 @@ pub(crate) fn run_shipment(command: ShipmentCommand, scope: RunScope<'_>) -> Res
 
 #[allow(unused_variables)]
 pub(crate) fn run_submission(command: SubmissionCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         SubmissionCommand::Add {
             assignment,
@@ -56,7 +56,7 @@ pub(crate) fn run_submission(command: SubmissionCommand, scope: RunScope<'_>) ->
 
 #[allow(unused_variables)]
 pub(crate) fn run_asset(command: AssetCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         AssetCommand::Import {
             path,
@@ -99,7 +99,7 @@ pub(crate) fn run_asset(command: AssetCommand, scope: RunScope<'_>) -> Result<()
 
 #[allow(unused_variables)]
 pub(crate) fn run_rights(command: RightsCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         RightsCommand::Grant {
             assignment,
@@ -167,7 +167,7 @@ pub(crate) fn run_rights(command: RightsCommand, scope: RunScope<'_>) -> Result<
 
 #[allow(unused_variables)]
 pub(crate) fn run_payment(command: PaymentCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         PaymentCommand::Create {
             assignment,

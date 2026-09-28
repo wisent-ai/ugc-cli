@@ -5,7 +5,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use rusqlite::{Connection as Sqlite, OptionalExtension, params};
+use stado_database::params;
+use stado_database::sync::{Bind, Client, OptionalExtension, Row, Values};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use uuid::Uuid;

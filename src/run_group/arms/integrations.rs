@@ -2,7 +2,7 @@ use super::*;
 
 #[allow(unused_variables)]
 pub(crate) fn run_message(command: MessageCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         MessageCommand::Send {
             assignment,
@@ -19,7 +19,7 @@ pub(crate) fn run_message(command: MessageCommand, scope: RunScope<'_>) -> Resul
 
 #[allow(unused_variables)]
 pub(crate) fn run_sync(command: SyncCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         SyncCommand::Run {
             limit,
@@ -44,7 +44,7 @@ pub(crate) fn run_sync(command: SyncCommand, scope: RunScope<'_>) -> Result<()> 
 
 #[allow(unused_variables)]
 pub(crate) fn run_webhook(command: WebhookCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         WebhookCommand::Ingest {
             connection,
@@ -74,7 +74,7 @@ pub(crate) fn run_webhook(command: WebhookCommand, scope: RunScope<'_>) -> Resul
 
 #[allow(unused_variables)]
 pub(crate) fn run_weles(command: WelesCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         WelesCommand::Enqueue {
             base_url,
@@ -112,7 +112,7 @@ pub(crate) fn run_weles(command: WelesCommand, scope: RunScope<'_>) -> Result<()
 
 #[allow(unused_variables)]
 pub(crate) fn run_skarbiec(command: SkarbiecCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         SkarbiecCommand::Check { source } => {
             secret::check(&source)?;
@@ -130,7 +130,7 @@ pub(crate) fn run_skarbiec(command: SkarbiecCommand, scope: RunScope<'_>) -> Res
 
 #[allow(unused_variables)]
 pub(crate) fn run_router(command: BramaCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         BramaCommand::Health { base_url } => {
             let base_url = option_or_env(base_url, "BRAMA_URL")?;

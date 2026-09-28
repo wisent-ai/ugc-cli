@@ -2,7 +2,7 @@ use super::*;
 
 #[allow(unused_variables)]
 pub(crate) fn run_connection(command: ConnectionCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         ConnectionCommand::Add {
             name,
@@ -37,7 +37,7 @@ pub(crate) fn run_connection(command: ConnectionCommand, scope: RunScope<'_>) ->
 
 #[allow(unused_variables)]
 pub(crate) fn run_campaign(command: CampaignCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         CampaignCommand::Create {
             name,
@@ -86,7 +86,7 @@ pub(crate) fn run_campaign(command: CampaignCommand, scope: RunScope<'_>) -> Res
 
 #[allow(unused_variables)]
 pub(crate) fn run_brief(command: BriefCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         BriefCommand::Add {
             campaign,
@@ -130,7 +130,7 @@ pub(crate) fn run_brief(command: BriefCommand, scope: RunScope<'_>) -> Result<()
 
 #[allow(unused_variables)]
 pub(crate) fn run_creator(command: CreatorCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         CreatorCommand::Add {
             name,
@@ -176,7 +176,7 @@ pub(crate) fn run_creator(command: CreatorCommand, scope: RunScope<'_>) -> Resul
 
 #[allow(unused_variables)]
 pub(crate) fn run_assignment(command: AssignmentCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, db_path, asset_dir, actor } = scope;
+    let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         AssignmentCommand::Create {
             campaign,

@@ -15,7 +15,7 @@ hex = "0.4.3"
 hmac = "0.13.0"
 infer = "0.22.0"
 reqwest = { version = "0.13.4", features = ["blocking", "json", "query", "rustls"] }
-rusqlite = { version = "0.40.1", features = ["bundled"] }
+stado-database = { git = "https://github.com/wisent-ai/stado", package = "stado-database" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"

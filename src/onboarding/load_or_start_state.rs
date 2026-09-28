@@ -5,7 +5,6 @@ use super::*;
 /// here: the walk starts again at the journey's entry screen.
 pub(crate) fn load_or_start_state(
     path: &Path,
-    db_path: &Path,
     actor: &str,
     definition: &Value,
     revision: &str,
@@ -36,7 +35,7 @@ pub(crate) fn load_or_start_state(
         "journey_id": JOURNEY_ID,
         "journey_version": definition.get("journey_version"),
         "source_revision": definition.get("source_revision"),
-        "subject_hash": subject_hash(db_path, actor)?,
+        "subject_hash": subject_hash(actor),
         "attempt_id": Uuid::new_v4().to_string(),
         "current_screen_id": definition.get("entry_screen_id"),
         "status": "in_progress",
@@ -56,26 +55,20 @@ pub(crate) fn save_state(path: &Path, state: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Progress belongs to the operator keeping this ledger, so it is stamped
-/// with the ledger's resolved path and the acting operator.
-pub(crate) fn subject_hash(db_path: &Path, actor: &str) -> Result<String> {
-    let resolved = fs::canonicalize(db_path).unwrap_or_else(|_| {
-        std::env::current_dir()
-            .map(|cwd| cwd.join(db_path))
-            .unwrap_or_else(|_| db_path.to_path_buf())
-    });
-    let identity = format!("{PRODUCT_ID}-onboarding\0{}\0{actor}", resolved.display());
-    Ok(hex::encode(Sha256::digest(identity.as_bytes())))
+/// Progress belongs to the operator working the fleet ledger, so it is
+/// stamped with that ledger's name and the acting operator.
+pub(crate) fn subject_hash(actor: &str) -> String {
+    let identity = format!(
+        "{PRODUCT_ID}-onboarding\0fleet database {}\0{actor}",
+        crate::db::Store::DATABASE
+    );
+    hex::encode(Sha256::digest(identity.as_bytes()))
 }
 
-/// The walk is progress against one ledger, not against this machine: a
-/// scratch `--db` rehearses the journey without disturbing a working one.
-pub(crate) fn state_path(db_path: &Path) -> PathBuf {
-    db_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-        .join("onboarding-first-use.json")
+/// Where this operator's walk is recorded: in the local state directory
+/// beside the asset directory, since the ledger itself is the fleet's.
+pub(crate) fn state_path(state_dir: &Path) -> PathBuf {
+    state_dir.join("onboarding-first-use.json")
 }
 
 pub(crate) fn wait_for_enter(unattended: bool, prompt: &str) -> Result<()> {

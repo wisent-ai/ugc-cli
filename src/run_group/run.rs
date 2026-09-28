@@ -2,9 +2,8 @@ use super::*;
 
 pub(crate) fn run() -> Result<()> {
     let cli = Cli::parse();
-    let db_path = cli.db.unwrap_or_else(default_db_path);
     let asset_dir = cli.asset_dir.unwrap_or_else(default_asset_dir);
-    let store = Store::open(&db_path)?;
+    let store = Store::open()?;
     let service = UgcService {
         store: &store,
         actor: &cli.actor,
@@ -18,7 +17,6 @@ pub(crate) fn run() -> Result<()> {
         store: &store,
         service: &service,
         standalone: &standalone,
-        db_path: &db_path,
         asset_dir: &asset_dir,
         actor: &cli.actor,
     };
@@ -27,7 +25,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Connection(args) => run_connection(args.command, scope)?,
         Command::Campaign(args) => run_campaign(args.command, scope)?,
         Command::Onboarding(args) => onboarding::run(
-            &db_path,
+            &onboarding_dir(&asset_dir),
             &cli.actor,
             &store,
             args.reset,
@@ -62,21 +60,30 @@ pub(crate) fn run() -> Result<()> {
                 }
             }).collect();
             output(
-                &json!({"database": db_path, "asset_dir": asset_dir, "counts": store.counts()?, "connections": health}),
+                &json!({"database": format!("fleet database {}", Store::DATABASE), "asset_dir": asset_dir, "counts": store.counts()?, "connections": health}),
             )?;
         }
     }
     Ok(())
 }
 
+/// Where this operator's first-use progress is kept: beside the asset
+/// directory, since the ledger itself is the fleet's.
+fn onboarding_dir(asset_dir: &std::path::Path) -> PathBuf {
+    asset_dir
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// What every subcommand handler reads: the ledger, the two services, the
-/// resolved paths and the acting operator. Only references, so it is copied.
+/// asset directory and the acting operator. Only references, so it is copied.
 #[derive(Clone, Copy)]
 pub(crate) struct RunScope<'a> {
     pub(crate) store: &'a Store,
     pub(crate) service: &'a UgcService<'a>,
     pub(crate) standalone: &'a StandaloneService<'a>,
-    pub(crate) db_path: &'a PathBuf,
     pub(crate) asset_dir: &'a PathBuf,
     pub(crate) actor: &'a String,
 }

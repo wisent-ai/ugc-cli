@@ -30,6 +30,12 @@ pub struct OutboxItem {
     pub updated_at: String,
 }
 
+/// The UGC ledger, held in the fleet database `ugc-cli`.
 pub struct Store {
-    pub(crate) db: Sqlite,
+    pub(crate) db: Client,
+}
+
+/// Bind a list of text parameters of a length only known at run time.
+pub(crate) fn texts(values: &[String]) -> Values {
+    Values(values.iter().map(Bind::bind).collect())
 }
