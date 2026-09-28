@@ -4,11 +4,11 @@
 //! copy of the same words, so the screens an operator reads here are the
 //! screens the control plane holds.
 //!
-//! Progress is recorded beside the ledger it describes, because the evidence
-//! this journey waits for is the first campaign record in that database: a
-//! scratch `--db` therefore rehearses the whole walk without touching the
-//! progress of a working ledger. `--reset` discards the recorded attempt and
-//! replays the journey from its entry screen in the same invocation.
+//! The ledger is the fleet database `ugc-cli`; this operator's progress
+//! through the walk is recorded in the local state directory beside the
+//! assets, keyed to that ledger and the acting operator. `--reset` discards
+//! the recorded attempt and replays the journey from its entry screen in the
+//! same invocation.
 //!
 //! Nothing here contacts a creator and nothing here moves money. With
 //! `--import`, the walk calls the same validated, transactional ledger import
