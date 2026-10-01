@@ -5,6 +5,9 @@ edition = "2024"
 description = "Local campaign ledger, rights receipts, and creator operations workflow"
 license-file = "LICENSE"
 repository = "https://github.com/wisent-ai/ugc-cli"
+# No test target is built until the operator approves one with
+# `tama tests approve`.
+autotests = false
 
 [dependencies]
 anyhow = "1.0.104"

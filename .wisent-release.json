@@ -19,9 +19,6 @@
       "build": {
         "argv": ["stado", "product", "cargo", "stage", "--bin", "ugc-cli"]
       },
-      "tests": [
-        {"name": "cargo-test", "argv": ["cargo", "test", "--locked"]}
-      ],
       "stage": {
         "ugc-cli": "bin/ugc-cli"
       }
@@ -37,9 +34,6 @@
       "build": {
         "argv": ["stado", "product", "cargo", "stage", "--bin", "ugc-cli"]
       },
-      "tests": [
-        {"name": "cargo-test", "argv": ["cargo", "test", "--locked"]}
-      ],
       "stage": {
         "ugc-cli": "bin/ugc-cli"
       }
