@@ -70,9 +70,9 @@ pub(crate) enum ConnectionCommand {
         provider: String,
         #[arg(long)]
         base_url: Option<String>,
-        #[arg(long = "token-source", visible_alias = "token-env")]
+        #[arg(long = "token-source")]
         token_source: Option<String>,
-        #[arg(long = "webhook-secret-source", visible_alias = "webhook-secret-env")]
+        #[arg(long = "webhook-secret-source")]
         webhook_secret_source: Option<String>,
         #[arg(long)]
         external_account_id: Option<String>,
