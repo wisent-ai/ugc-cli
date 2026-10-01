@@ -241,8 +241,6 @@ pub(crate) enum StandaloneCommand {
         max_header_count: usize,
         #[arg(long)]
         max_body_bytes: usize,
-        #[arg(long)]
-        request_timeout_seconds: u64,
     },
     Export {
         file: PathBuf,

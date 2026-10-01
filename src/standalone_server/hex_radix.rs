@@ -7,7 +7,6 @@ pub struct ServerLimits {
     pub header_line_bytes: usize,
     pub header_count: usize,
     pub body_bytes: usize,
-    pub timeout_seconds: u64,
 }
 
 pub fn serve(
@@ -26,11 +25,7 @@ pub fn serve(
     if !address.ip().is_loopback() && operator_token.is_none() {
         bail!("non-loopback standalone server requires --operator-token-source");
     }
-    if limits.header_line_bytes == 0
-        || limits.header_count == 0
-        || limits.body_bytes == 0
-        || limits.timeout_seconds == 0
-    {
+    if limits.header_line_bytes == 0 || limits.header_count == 0 || limits.body_bytes == 0 {
         bail!("standalone server limits must be positive");
     }
     let listener = TcpListener::bind(address)
@@ -40,9 +35,6 @@ pub fn serve(
         match stream {
             Ok(mut stream) => {
                 let response = (|| -> Result<Response> {
-                    let timeout = Duration::from_secs(limits.timeout_seconds);
-                    stream.set_read_timeout(Some(timeout))?;
-                    stream.set_write_timeout(Some(timeout))?;
                     handle(
                         store,
                         asset_dir,

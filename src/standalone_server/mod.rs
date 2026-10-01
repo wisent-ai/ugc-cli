@@ -4,7 +4,6 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::Path,
-    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};

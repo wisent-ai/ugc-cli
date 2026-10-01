@@ -244,12 +244,11 @@ pub(crate) fn portal_page(store: &Store, token: &str, actor: &str) -> Result<Res
     html.push_str(&format!(
         r#"<script>
 const portalToken={token_json};
-const RELOAD_DELAY_MS=700;
 async function callPortal(action,payload){{
  const response=await fetch(`/api/portal/${{portalToken}}/${{action}}`,{{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify(payload)}});
  const data=await response.json(); const notice=document.getElementById('notice');
  notice.textContent=response.ok?'Saved successfully':(data.error||'Request failed'); notice.className=response.ok?'ok':'error';
- if(response.ok) setTimeout(()=>location.reload(),RELOAD_DELAY_MS);
+ if(response.ok) location.reload();
 }}
 function replyTo(id){{const body=document.getElementById(`reply-${{id}}`).value;callPortal('reply',{{conversation_id:id,body}});}}
 function acceptConversation(id){{callPortal('accept',{{conversation_id:id}});}}

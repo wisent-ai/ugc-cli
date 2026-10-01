@@ -235,7 +235,6 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
             max_header_line_bytes,
             max_header_count,
             max_body_bytes,
-            request_timeout_seconds,
         } => {
             let operator_token = operator_token_source
                 .as_deref()
@@ -253,7 +252,6 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
                     header_line_bytes: max_header_line_bytes,
                     header_count: max_header_count,
                     body_bytes: max_body_bytes,
-                    timeout_seconds: request_timeout_seconds,
                 },
             )?;
         }
