@@ -227,7 +227,8 @@ pub(crate) enum StandaloneCommand {
     },
     Dashboard,
     Serve {
-        #[arg(long, default_value = "127.0.0.1:8765")]
+        /// host:port the portal listens on; no address is assumed.
+        #[arg(long)]
         bind: String,
         #[arg(long)]
         operator_token_source: Option<String>,
