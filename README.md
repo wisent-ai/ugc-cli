@@ -71,6 +71,8 @@ Both commands call the same store import operation. It validates every record, t
 
 The root operator screen served by `ugc-cli standalone serve` submits the same record array to authenticated `POST /api/import`; success follows commit, conflicts return 409, and malformed input returns 400. The operation returns `imported`, `unchanged`, `conflicting`, and `rejected` record lists and never prints credential contents.
 
+The same screen edits or cancels a campaign, archives a brief and removes a creator through `PATCH /api/campaigns/{id}`, `POST /api/campaigns/{id}/status`, `POST /api/briefs/{id}/archive` and `DELETE /api/creators/{id}`, the calls `campaign edit`, `campaign status`, `brief archive` and `creator remove` make; each refusal (an unknown id, a creator assignments still name, a brief already archived) is shown with its HTTP status.
+
 ## Product boundaries
 
 ### Included
