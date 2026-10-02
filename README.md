@@ -235,7 +235,7 @@ same answer as one `path: value` line per field for a person.
 | Command family | Contract |
 |---|---|
 | `connection` | provider connection lifecycle and health |
-| `campaign`, `brief`, `creator`, `assignment` | campaign planning and people/work records |
+| `campaign`, `brief`, `creator`, `assignment` | campaign planning and people/work records; `campaign edit` changes name, objective, deadline or budget and `campaign status <id> cancelled` retires it, `brief archive` retires a draft or approved brief, `creator remove` removes a creator and their identities and is refused while assignments name them |
 | `shipment`, `submission`, `asset` | physical and media delivery lifecycle |
 | `rights`, `payment`, `message` | rights, compensation records, and communication |
 | `sync`, `webhook` | explicit outbox and inbound event processing |

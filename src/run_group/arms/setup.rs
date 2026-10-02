@@ -80,6 +80,9 @@ pub(crate) fn run_campaign(command: CampaignCommand, scope: RunScope<'_>) -> Res
         CampaignCommand::Publications { id } => {
             output(&store.list::<Publication>("publication", Some(&id), None)?)?
         }
+        CampaignCommand::Edit { id, name, objective, deadline, budget_minor } => {
+            output(&service.edit_campaign(&id, name, objective, deadline, budget_minor)?)?
+        }
     }
     Ok(())
 }
@@ -124,6 +127,7 @@ pub(crate) fn run_brief(command: BriefCommand, scope: RunScope<'_>) -> Result<()
         }
         BriefCommand::Show { id } => output(&store.get::<Brief>("brief", &id)?)?,
         BriefCommand::Approve { id } => output(&service.approve_brief(&id)?)?,
+        BriefCommand::Archive { id } => output(&service.archive_brief(&id)?)?,
     }
     Ok(())
 }
@@ -170,6 +174,7 @@ pub(crate) fn run_creator(command: CreatorCommand, scope: RunScope<'_>) -> Resul
         CreatorCommand::Identities { creator } => {
             output(&store.list::<CreatorIdentity>("creator_identity", Some(&creator), None)?)?
         }
+        CreatorCommand::Remove { id } => output(&service.remove_creator(&id)?)?,
     }
     Ok(())
 }

@@ -10,6 +10,7 @@ use crate::{
     },
 };
 
+mod lifecycle;
 mod ugc_service_group;
 mod ugc_service_a_check_rights_group;
 

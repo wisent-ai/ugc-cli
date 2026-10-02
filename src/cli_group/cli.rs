@@ -144,6 +144,18 @@ pub(crate) enum CampaignCommand {
     Publications {
         id: String,
     },
+    /// Change a campaign's name, objective, deadline or budget; cancel it with `status <id> cancelled`.
+    Edit {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        objective: Option<String>,
+        #[arg(long)]
+        deadline: Option<String>,
+        #[arg(long)]
+        budget_minor: Option<i64>,
+    },
 }
 
 #[derive(Args)]
@@ -192,6 +204,10 @@ pub(crate) enum BriefCommand {
         id: String,
     },
     Approve {
+        id: String,
+    },
+    /// Retire a brief: draft or approved goes to archived; assignments keep naming its version.
+    Archive {
         id: String,
     },
 }
@@ -244,6 +260,10 @@ pub(crate) enum CreatorCommand {
     Identities {
         #[arg(long)]
         creator: String,
+    },
+    /// Remove a creator and their identities; refused while assignments name them.
+    Remove {
+        id: String,
     },
 }
 
