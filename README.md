@@ -20,9 +20,10 @@ additional income automatically.
 
 Your Campaign, Scaled by Real Humans.
 
-It provides a complete standalone ledger and manual-provider workflow without
-requiring a creator marketplace, hosted database, Wisent account, or payment
-provider.
+It provides a standalone ledger and manual-provider workflow without a
+creator marketplace, Wisent account, or payment provider. The ledger still
+requires a reachable Postgres fleet database; standalone means the work and
+local portal do not depend on a hosted creator marketplace.
 
 [Quick start](#quick-start) · [Command surface](#primary-interfaces) ·
 [Safety boundaries](#safety-rights-and-compliance) ·
@@ -189,10 +190,11 @@ provider, sends no message, moves no money, and publishes nothing.
 
 - Git;
 - the Rust toolchain compatible with `Cargo.lock`;
-- Stado on this host declaring the database `ugc-cli` for consumer `ugc-cli`,
-  and the Skarbiec bearer of consumer `ugc-cli-database-client` in
-  `~/.stado/ugc-cli-database-client-skarbiec-token`, which may read
-  `ugc-cli-database#pooler_url` and `ugc-cli-database#ca_certificate`;
+- a reachable Postgres database: Stado may declare `ugc-cli` for consumer
+  `ugc-cli`, with the `ugc-cli-database-client` Skarbiec bearer able to read
+  `ugc-cli-database#pooler_url` and `#ca_certificate`; alternatively set
+  `UGC_CLI_DATABASE_URL` and `UGC_CLI_DATABASE_CA_FILE` for a direct connection.
+  A direct server connection refuses a missing CA file before connecting;
 - a private local directory for assets.
 
 ```bash
@@ -213,15 +215,15 @@ cargo run --locked -- --actor "$USER" campaign list
 Expected result: `campaign create` prints the new record and `campaign list`
 returns it from the fleet database.
 
-Every command reaches the ledger in four steps, and a failure names the step:
-`stado database resolve ugc-cli --consumer ugc-cli --json` names the credential
-item; `stado service directory connect skarbiec --consumer ugc-cli --json`
-names the Skarbiec route; `stado secrets get ugc-cli-database --field
-pooler_url` and `--field ca_certificate`, read as `ugc-cli-database-client`,
-give the pooler URL and root certificate; the connection is verified against
-that certificate. A refusal reads `the fleet database could not be reached at
-step <step>: <Stado's answer>`. Stado and the bearer are found under
-`UGC_FLEET_HOME`, else `HOME`.
+Through Stado, every command reaches the ledger in four steps, and a failure
+names the step: `stado database resolve ugc-cli --consumer ugc-cli --json`
+names the credential item; `stado service directory connect skarbiec
+--consumer ugc-cli --json` names the route; `stado credentials get
+ugc-cli-database --field pooler_url` and `--field ca_certificate`, read as
+`ugc-cli-database-client`, give the URL and root certificate; the connection
+is verified against that certificate. A refusal reads `the fleet database
+could not be reached at step <step>: <Stado's answer>`. Stado and the bearer
+are found under `UGC_FLEET_HOME`, else `HOME`.
 
 Never use a repository checkout or shared temporary directory for real creator
 personal data, messages, addresses, media, contracts, or payout records.
@@ -231,8 +233,10 @@ personal data, messages, addresses, media, contracts, or payout records.
 The installed executable is `ugc-cli`. Every invocation names who acts with
 the global `--actor` argument (the audit record carries it) and the private
 asset directory with `--asset-dir` or `UGC_ASSET_DIR`; nothing is assumed.
-Every command prints its answer as JSON; the global `--text` flag prints the
-same answer as one `path: value` line per field for a person.
+Every command prints its answer as JSON; global `--json` selects it explicitly.
+Global `--text` prints the same answer as one `path: value` line per field for
+a person. The flags conflict before the ledger opens. Onboarding uses these
+same flags: text is the screen walk and JSON is one result document.
 
 | Command family | Contract |
 |---|---|

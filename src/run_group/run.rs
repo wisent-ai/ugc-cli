@@ -31,7 +31,7 @@ pub(crate) fn run() -> Result<()> {
             &store,
             args.reset,
             args.import.as_deref(),
-            args.json,
+            cli.json,
             args.yes,
         )?,
         Command::Brief(args) => run_brief(args.command, scope)?,

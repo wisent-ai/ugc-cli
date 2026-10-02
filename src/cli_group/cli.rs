@@ -11,10 +11,13 @@ pub(crate) struct Cli {
     pub(crate) asset_dir: Option<PathBuf>,
     #[arg(long, global = true, help = "Who acts, as the audit record names it")]
     pub(crate) actor: String,
-    /// Print each JSON answer as indented `path: value` lines for a person.
-    /// Without it every command prints its answer as JSON.
+    /// Print structured answers as `path: value` lines; onboarding uses its
+    /// screen walk. Without this, structured commands print JSON.
     #[arg(long, global = true)]
     pub(crate) text: bool,
+    /// Select JSON explicitly for every command, including onboarding.
+    #[arg(long, global = true, conflicts_with = "text")]
+    pub(crate) json: bool,
     #[command(subcommand)]
     pub(crate) command: Command,
 }
@@ -54,9 +57,6 @@ pub(crate) struct OnboardingArgs {
     /// Import a canonical `ugc standalone export` while walking first use.
     #[arg(long, value_name = "EXPORT_JSON")]
     pub(crate) import: Option<PathBuf>,
-    /// Emit the whole walk as one JSON document instead of printing screens.
-    #[arg(long)]
-    pub(crate) json: bool,
     /// Never wait for Enter between screens.
     #[arg(long)]
     pub(crate) yes: bool,
