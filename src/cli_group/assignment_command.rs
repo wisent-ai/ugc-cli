@@ -13,9 +13,9 @@ pub(crate) enum AssignmentCommand {
         connection: Option<String>,
         #[arg(long)]
         compensation_minor: Option<i64>,
-        #[arg(long, default_value = "USD")]
+        #[arg(long, help = "Three-letter currency code the compensation is in")]
         currency: String,
-        #[arg(long, default_value = "none")]
+        #[arg(long, help = "Who owns the payment: the operator, the provider, or none")]
         payment_owner: String,
         #[arg(long)]
         deadline: Option<String>,
@@ -113,7 +113,7 @@ pub(crate) enum AssetCommand {
         path: PathBuf,
         #[arg(long)]
         submission: Option<String>,
-        #[arg(long, default_value = "final")]
+        #[arg(long, help = "The imported asset's role in the submission, for example final or draft")]
         role: String,
         #[arg(long)]
         source_url: Option<String>,
@@ -219,7 +219,7 @@ pub(crate) enum PaymentCommand {
         submission: Option<String>,
         #[arg(long)]
         amount_minor: i64,
-        #[arg(long, default_value = "USD")]
+        #[arg(long, help = "Three-letter currency code the amount is in")]
         currency: String,
         #[arg(long)]
         external_id: Option<String>,
@@ -254,9 +254,9 @@ pub(crate) enum MessageCommand {
     Send {
         #[arg(long)]
         assignment: String,
-        #[arg(long, default_value = "outbound")]
+        #[arg(long, help = "outbound or inbound")]
         direction: String,
-        #[arg(long, default_value = "provider")]
+        #[arg(long, help = "The channel the message travels on, for example provider or local_portal")]
         channel: String,
         #[arg(long)]
         body: String,

@@ -125,7 +125,7 @@ pub(crate) enum BramaCommand {
         agent_id: Option<String>,
         #[arg(long)]
         signing_secret_source: Option<String>,
-        #[arg(long, default_value = "task:ugc-review")]
+        #[arg(long, help = "The Brama model or task selector the analysis runs on")]
         model: String,
         #[arg(long)]
         instruction: Option<String>,

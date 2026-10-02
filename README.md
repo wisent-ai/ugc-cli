@@ -58,13 +58,13 @@ UGC CLI serves:
 Use the exact record array produced by `standalone export` to start onboarding from data you already own:
 
 ```bash
-ugc-cli onboarding --reset --import ugc-backup.json
+ugc-cli --actor <your-name> onboarding --reset --import ugc-backup.json
 ```
 
 The walkthrough completes only after the destination accepts the import and reads back a campaign record. Without `--import`, onboarding remains usable with an empty ledger and waits for your first real campaign. The reusable command outside onboarding is:
 
 ```bash
-ugc-cli standalone import ugc-backup.json
+ugc-cli --actor <your-name> standalone import ugc-backup.json
 ```
 
 Both commands call the same store import operation. It validates every record, typed payload, identity, timestamp, and relationship before one transaction in the fleet database writes records and audit entries. Exact records remain unchanged; any conflicting, unsupported, missing, lossy, or noncanonical record refuses the entire import. Rights and payment rows remain ledger data only: import never settles payment, publishes, contacts a creator, or enqueues provider work. Assets remain separate content-addressed files under `UGC_ASSET_DIR` and must be copied with the JSON export.
@@ -197,7 +197,7 @@ provider, sends no message, moves no money, and publishes nothing.
 git clone https://github.com/wisent-ai/ugc-cli.git
 cd ugc-cli
 cargo build --locked
-cargo run --locked -- campaign create \
+cargo run --locked -- --actor "$USER" campaign create \
   --name "Quick start" \
   --brand "Example brand" \
   --product "Example product" \
@@ -205,7 +205,7 @@ cargo run --locked -- campaign create \
   --languages en \
   --channels short-video \
   --currency USD
-cargo run --locked -- campaign list
+cargo run --locked -- --actor "$USER" campaign list
 ```
 
 Expected result: `campaign create` prints the new record and `campaign list`
@@ -226,8 +226,9 @@ personal data, messages, addresses, media, contracts, or payout records.
 
 ## Primary interfaces
 
-The installed executable is `ugc-cli` and accepts global `--asset-dir` and
-`--actor` arguments.
+The installed executable is `ugc-cli`. Every invocation names who acts with
+the global `--actor` argument (the audit record carries it; nothing is
+assumed) and may point `--asset-dir` at the private asset directory.
 
 | Command family | Contract |
 |---|---|

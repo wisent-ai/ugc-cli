@@ -9,7 +9,7 @@ use super::*;
 pub(crate) struct Cli {
     #[arg(long, global = true)]
     pub(crate) asset_dir: Option<PathBuf>,
-    #[arg(long, global = true, default_value = "cli")]
+    #[arg(long, global = true, help = "Who acts, as the audit record names it")]
     pub(crate) actor: String,
     #[command(subcommand)]
     pub(crate) command: Command,
@@ -114,7 +114,7 @@ pub(crate) enum CampaignCommand {
         channels: Vec<String>,
         #[arg(long)]
         budget_minor: Option<i64>,
-        #[arg(long, default_value = "USD")]
+        #[arg(long, help = "Three-letter currency code the budget is in")]
         currency: String,
         #[arg(long)]
         deadline: Option<String>,
@@ -153,7 +153,7 @@ pub(crate) enum BriefCommand {
     Add {
         #[arg(long)]
         campaign: String,
-        #[arg(long, default_value = "ugc_content")]
+        #[arg(long, help = "The service the brief asks for, for example ugc_content")]
         service_type: String,
         #[arg(long)]
         creative_angle: String,

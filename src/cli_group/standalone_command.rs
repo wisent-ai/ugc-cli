@@ -58,7 +58,7 @@ pub(crate) enum StandaloneCommand {
         brief: Option<String>,
         #[arg(long)]
         offer_minor: Option<i64>,
-        #[arg(long, default_value = "USD")]
+        #[arg(long, help = "Three-letter currency code the offer is in")]
         currency: String,
         #[arg(long)]
         shipping_required: bool,
@@ -80,7 +80,7 @@ pub(crate) enum StandaloneCommand {
         id: String,
         #[arg(long)]
         body: String,
-        #[arg(long, default_value = "local_portal")]
+        #[arg(long, help = "The channel the message arrived on, for example local_portal")]
         channel: String,
         #[arg(long)]
         external_id: Option<String>,
@@ -89,7 +89,7 @@ pub(crate) enum StandaloneCommand {
         id: String,
         #[arg(long)]
         body: String,
-        #[arg(long, default_value = "local_portal")]
+        #[arg(long, help = "The channel the message is sent on, for example local_portal")]
         channel: String,
         #[arg(long)]
         automated: bool,
@@ -111,7 +111,7 @@ pub(crate) enum StandaloneCommand {
         assignment: String,
         #[arg(long)]
         amount_minor: i64,
-        #[arg(long, default_value = "USD")]
+        #[arg(long, help = "Three-letter currency code the amount is in")]
         currency: String,
         #[arg(long)]
         idempotency_key: Option<String>,
@@ -140,7 +140,7 @@ pub(crate) enum StandaloneCommand {
     LedgerBalance {
         #[arg(long)]
         account: String,
-        #[arg(long, default_value = "USD")]
+        #[arg(long, help = "Three-letter currency code of the balance read")]
         currency: String,
     },
     LedgerList {
@@ -190,9 +190,9 @@ pub(crate) enum StandaloneCommand {
         revenue_minor: i64,
         #[arg(long)]
         spend_minor: i64,
-        #[arg(long, default_value = "USD")]
+        #[arg(long, help = "Three-letter currency code the figures are in")]
         currency: String,
-        #[arg(long, default_value = "manual")]
+        #[arg(long, help = "Where the figures come from, for example manual or a provider name")]
         source: String,
         #[arg(long)]
         captured_at: Option<String>,
