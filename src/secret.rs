@@ -77,16 +77,14 @@ fn parse_env_value(contents: &str, expected: &str) -> Result<String> {
     bail!("secret key not found")
 }
 
+/// The value between one matching pair of surrounding quotes, or the value
+/// as written.
 fn unquote(value: &str) -> String {
-    if value.len() >= "''".len() {
-        let bytes = value.as_bytes();
-        let first = bytes[0];
-        let last = bytes[value.len() - "x".len()];
-        if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
-            return value["x".len()..value.len() - "x".len()].to_owned();
-        }
-    }
-    value.to_owned()
+    ['\'', '"']
+        .into_iter()
+        .find_map(|quote| value.strip_prefix(quote)?.strip_suffix(quote))
+        .unwrap_or(value)
+        .to_owned()
 }
 
 #[cfg(unix)]

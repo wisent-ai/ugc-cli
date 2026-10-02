@@ -259,9 +259,12 @@ pub(crate) struct AuditArgs {
     pub(crate) id: Option<String>,
 }
 
-pub(crate) fn main() {
-    if let Err(error) = run() {
-        eprintln!("error: {error:#}");
-        std::process::exit("x".len() as i32);
+pub(crate) fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            std::process::ExitCode::FAILURE
+        }
     }
 }
