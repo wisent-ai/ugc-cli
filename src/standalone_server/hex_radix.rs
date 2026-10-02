@@ -255,6 +255,9 @@ pub(crate) fn operator_api(store: &Store, actor: &str, request: &Request) -> Res
                     ));
                 }
             }
+            if let Some(response) = manage_api(&core, request)? {
+                return Ok(response);
+            }
             Ok(Response::json(
                 "HTTP/1.1 404 Not Found",
                 json!({"error": "route not found"}),

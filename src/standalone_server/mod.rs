@@ -19,9 +19,11 @@ use crate::{
 };
 
 mod hex_radix;
+mod manage;
 mod portal_api;
 mod read_request;
 
 pub use hex_radix::*;
+pub use manage::*;
 pub use portal_api::*;
 pub use read_request::*;
