@@ -227,8 +227,10 @@ personal data, messages, addresses, media, contracts, or payout records.
 ## Primary interfaces
 
 The installed executable is `ugc-cli`. Every invocation names who acts with
-the global `--actor` argument (the audit record carries it; nothing is
-assumed) and may point `--asset-dir` at the private asset directory.
+the global `--actor` argument (the audit record carries it) and the private
+asset directory with `--asset-dir` or `UGC_ASSET_DIR`; nothing is assumed.
+Every command prints its answer as JSON; the global `--text` flag prints the
+same answer as one `path: value` line per field for a person.
 
 | Command family | Contract |
 |---|---|

@@ -7,10 +7,14 @@ use super::*;
     about = "Provider-agnostic UGC campaign operations"
 )]
 pub(crate) struct Cli {
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help = "Private asset directory; else UGC_ASSET_DIR. No directory is assumed")]
     pub(crate) asset_dir: Option<PathBuf>,
     #[arg(long, global = true, help = "Who acts, as the audit record names it")]
     pub(crate) actor: String,
+    /// Print each JSON answer as indented `path: value` lines for a person.
+    /// Without it every command prints its answer as JSON.
+    #[arg(long, global = true)]
+    pub(crate) text: bool,
     #[command(subcommand)]
     pub(crate) command: Command,
 }

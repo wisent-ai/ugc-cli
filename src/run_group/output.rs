@@ -1,18 +1,73 @@
 use super::*;
 
+/// Whether this invocation asked for `--text`; set once, before any command
+/// prints.
+static TEXT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+pub(crate) fn set_text(text: bool) {
+    let _ = TEXT.set(text);
+}
+
+/// One answer: pretty JSON for machines, or with `--text` the same document
+/// as indented `path: value` lines, list entries as `- ` lines (cli.md rule 13).
 pub(crate) fn output<T: Serialize>(value: &T) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(value)?);
+    if !TEXT.get().copied().unwrap_or(false) {
+        println!("{}", serde_json::to_string_pretty(value)?);
+        return Ok(());
+    }
+    let mut rendered = String::new();
+    render(&serde_json::to_value(value)?, 0, &mut rendered);
+    print!("{rendered}");
     Ok(())
+}
+
+fn render(value: &Value, depth: usize, out: &mut String) {
+    let pad = "  ".repeat(depth);
+    let scalar = |value: &Value| match value {
+        Value::Null => Some("none".to_string()),
+        Value::String(text) => Some(text.clone()),
+        Value::Bool(_) | Value::Number(_) => Some(value.to_string()),
+        Value::Array(items) if items.is_empty() => Some("(none)".to_string()),
+        Value::Object(fields) if fields.is_empty() => Some("(none)".to_string()),
+        Value::Array(_) | Value::Object(_) => None,
+    };
+    match value {
+        Value::Object(fields) => {
+            for (key, field) in fields {
+                match scalar(field) {
+                    Some(text) => out.push_str(&format!("{pad}{key}: {text}\n")),
+                    None => {
+                        out.push_str(&format!("{pad}{key}:\n"));
+                        render(field, depth + 1, out);
+                    }
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                match scalar(item) {
+                    Some(text) => out.push_str(&format!("{pad}- {text}\n")),
+                    None => {
+                        out.push_str(&format!("{pad}-\n"));
+                        render(item, depth + 1, out);
+                    }
+                }
+            }
+        }
+        other => out.push_str(&format!("{pad}{other}\n")),
+    }
 }
 
 pub(crate) fn parse_json(input: &str) -> Result<Value> {
     serde_json::from_str(input).with_context(|| format!("invalid JSON: {input}"))
 }
 
-pub(crate) fn default_asset_dir() -> PathBuf {
-    env::var_os("UGC_ASSET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(".ugc/assets"))
+/// The private asset directory: `--asset-dir`, else `UGC_ASSET_DIR`. No
+/// directory is assumed; a missing one is refused by name.
+pub(crate) fn asset_dir(option: Option<PathBuf>) -> Result<PathBuf> {
+    option
+        .or_else(|| env::var_os("UGC_ASSET_DIR").map(PathBuf::from))
+        .context("name the private asset directory with --asset-dir or UGC_ASSET_DIR")
 }
 
 pub(crate) fn option_or_env(option: Option<String>, name: &str) -> Result<String> {

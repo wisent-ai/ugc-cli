@@ -2,7 +2,8 @@ use super::*;
 
 pub(crate) fn run() -> Result<()> {
     let cli = Cli::parse();
-    let asset_dir = cli.asset_dir.unwrap_or_else(default_asset_dir);
+    set_text(cli.text);
+    let asset_dir = asset_dir(cli.asset_dir)?;
     let store = Store::open()?;
     let service = UgcService {
         store: &store,
