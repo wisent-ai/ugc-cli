@@ -45,9 +45,9 @@ pub(crate) fn run() -> Result<()> {
         Command::Message(args) => run_message(args.command, scope)?,
         Command::Sync(args) => run_sync(args.command, scope)?,
         Command::Webhook(args) => run_webhook(args.command, scope)?,
-        Command::Weles(args) => run_weles(args.command, scope)?,
-        Command::Skarbiec(args) => run_skarbiec(args.command, scope)?,
-        Command::Brama(args) => run_router(args.command, scope)?,
+        Command::Automation(args) => run_weles(args.command, scope)?,
+        Command::Credential(args) => run_skarbiec(args.command, scope)?,
+        Command::Analysis(args) => run_router(args.command, scope)?,
         Command::Standalone(args) => run_standalone(args.command, scope)?,
         Command::Audit(args) => {
             output(&store.audit_log(args.kind.as_deref(), args.id.as_deref())?)?

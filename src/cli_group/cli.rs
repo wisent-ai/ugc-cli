@@ -35,9 +35,12 @@ pub(crate) enum Command {
     Message(MessageArgs),
     Sync(SyncArgs),
     Webhook(WebhookArgs),
-    Weles(WelesArgs),
-    Skarbiec(SkarbiecArgs),
-    Brama(BramaArgs),
+    /// Queue or follow a browser action on a creator platform account (the browser runtime is the adapter).
+    Automation(WelesArgs),
+    /// Check a credential source, or name a vault reference for one.
+    Credential(SkarbiecArgs),
+    /// Check the model gateway, or run a model analysis of one record.
+    Analysis(BramaArgs),
     Standalone(StandaloneArgs),
     Audit(AuditArgs),
     Diagnostics,

@@ -240,7 +240,7 @@ same answer as one `path: value` line per field for a person.
 | `rights`, `payment`, `message` | rights, compensation records, and communication |
 | `sync`, `webhook` | explicit outbox and inbound event processing |
 | `standalone` | local discovery, conversations, portal, ledger, publication, metrics, dashboard, serve, import/export |
-| `weles`, `skarbiec`, `brama` | bounded optional Wisent integrations |
+| `automation`, `credential`, `analysis` | a browser action on a creator platform account, a credential source check or vault reference, a model analysis of one record; the Wisent services behind them are adapters |
 | `audit`, `diagnostics` | evidence and operator readiness |
 
 Use `ugc-cli <family> --help` for exact subcommands and required fields.
