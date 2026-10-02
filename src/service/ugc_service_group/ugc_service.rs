@@ -183,7 +183,7 @@ impl<'a> UgcService<'a> {
             .map(|brief| brief.version)
             .max()
             .unwrap_or(0)
-            + "v".len() as i64;
+            + 1;
         let now = Store::now();
         let brief = Brief {
             id: Store::id(),

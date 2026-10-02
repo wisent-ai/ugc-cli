@@ -251,7 +251,7 @@ pub(crate) fn probe_media(path: &Path) -> Result<Value> {
         .and_then(Value::as_str)
         .and_then(|value| value.parse::<f64>().ok());
     let millis = seconds.map(|value| {
-        (value * Duration::seconds("s".len() as i64).num_milliseconds() as f64).round() as i64
+        (value * Duration::seconds(1).num_milliseconds() as f64).round() as i64
     });
     let video_stream = raw
         .get("streams")

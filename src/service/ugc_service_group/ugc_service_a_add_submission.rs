@@ -28,9 +28,9 @@ impl<'a> UgcService<'a> {
             .map(|submission| submission.revision)
             .max()
             .unwrap_or(0)
-            + "r".len() as i64;
+            + 1;
         if let Some(limit) = assignment.revision_limit {
-            let Some(maximum_revision) = limit.checked_add("r".len() as i64) else {
+            let Some(maximum_revision) = limit.checked_add(1) else {
                 bail!("assignment revision limit overflow");
             };
             if revision > maximum_revision {
