@@ -191,8 +191,8 @@ provider, sends no message, moves no money, and publishes nothing.
 - Git;
 - the Rust toolchain compatible with `Cargo.lock`;
 - a reachable Postgres database: Stado may declare `ugc-cli` for consumer
-  `ugc-cli`, with the `ugc-cli-database-client` Skarbiec bearer able to read
-  `ugc-cli-database#pooler_url` and `#ca_certificate`; alternatively set
+  `ugc-cli`, with the dedicated `ugc-cli-database-client` grant able to read
+  the resolved item's URL and certificate fields; alternatively set
   `UGC_CLI_DATABASE_URL` and `UGC_CLI_DATABASE_CA_FILE` for a direct connection.
   A direct server connection refuses a missing CA file before connecting;
 - a private local directory for assets.
@@ -219,11 +219,14 @@ Through Stado, every command reaches the ledger in four steps, and a failure
 names the step: `stado database resolve ugc-cli --consumer ugc-cli --json`
 names the credential item; `stado service directory connect skarbiec
 --consumer ugc-cli --json` names the route; `stado credentials get
-ugc-cli-database --field pooler_url` and `--field ca_certificate`, read as
-`ugc-cli-database-client`, give the URL and root certificate; the connection
-is verified against that certificate. A refusal reads `the fleet database
-could not be reached at step <step>: <Stado's answer>`. Stado and the bearer
-are found under `UGC_FLEET_HOME`, else `HOME`.
+<resolved-item> --field pooler_url --route <resolved-url> --consumer
+ugc-cli-database-client --grant-file
+~/.stado/ugc-cli-database-client-skarbiec-token` and the same read with
+`--field ca_certificate` give the URL and root certificate under the product
+grant, not the credential-store administrator. The connection is verified
+against that certificate. A refusal reads `the fleet database could not be
+reached at step <step>: <Stado's answer>`. Stado and the grant are found under
+`UGC_FLEET_HOME`, else `HOME`.
 
 Never use a repository checkout or shared temporary directory for real creator
 personal data, messages, addresses, media, contracts, or payout records.
