@@ -20,8 +20,21 @@ pub(crate) enum StandaloneCommand {
         min_followers: Option<i64>,
         #[arg(long)]
         max_rate_minor: Option<i64>,
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Return at most this many creators; every match when omitted"
+        )]
         limit: Option<usize>,
+        #[arg(
+            long,
+            help = "Engagement rate from which a creator's audience counts as evidence"
+        )]
+        min_engagement_rate: Option<f64>,
+        #[arg(
+            long,
+            help = "Response rate from which a creator counts as one who answers"
+        )]
+        min_response_rate: Option<f64>,
     },
     Launch {
         #[arg(long)]
@@ -40,8 +53,21 @@ pub(crate) enum StandaloneCommand {
         min_followers: Option<i64>,
         #[arg(long)]
         max_rate_minor: Option<i64>,
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Reach at most this many creators; every match when omitted"
+        )]
         limit: Option<usize>,
+        #[arg(
+            long,
+            help = "Engagement rate from which a creator's audience counts as evidence"
+        )]
+        min_engagement_rate: Option<f64>,
+        #[arg(
+            long,
+            help = "Response rate from which a creator counts as one who answers"
+        )]
+        min_response_rate: Option<f64>,
         #[arg(long)]
         offer_minor: Option<i64>,
         #[arg(long)]
@@ -80,7 +106,10 @@ pub(crate) enum StandaloneCommand {
         id: String,
         #[arg(long)]
         body: String,
-        #[arg(long, help = "The channel the message arrived on, for example local_portal")]
+        #[arg(
+            long,
+            help = "The channel the message arrived on, for example local_portal"
+        )]
         channel: String,
         #[arg(long)]
         external_id: Option<String>,
@@ -89,7 +118,10 @@ pub(crate) enum StandaloneCommand {
         id: String,
         #[arg(long)]
         body: String,
-        #[arg(long, help = "The channel the message is sent on, for example local_portal")]
+        #[arg(
+            long,
+            help = "The channel the message is sent on, for example local_portal"
+        )]
         channel: String,
         #[arg(long)]
         automated: bool,
@@ -192,7 +224,10 @@ pub(crate) enum StandaloneCommand {
         spend_minor: i64,
         #[arg(long, help = "Three-letter currency code the figures are in")]
         currency: String,
-        #[arg(long, help = "Where the figures come from, for example manual or a provider name")]
+        #[arg(
+            long,
+            help = "Where the figures come from, for example manual or a provider name"
+        )]
         source: String,
         #[arg(long)]
         captured_at: Option<String>,

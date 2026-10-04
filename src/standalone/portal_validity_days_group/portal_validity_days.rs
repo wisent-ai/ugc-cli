@@ -1,33 +1,4 @@
 use super::*;
-
-/// A portal link a creator receives stays valid this long when the caller sets no other span.
-pub(crate) const PORTAL_VALIDITY_DAYS: i64 = 30;
-
-/// How many creators `discover` returns when the query sets no limit.
-pub(crate) const DEFAULT_DISCOVERY_LIMIT: usize = 20;
-
-// Discovery scoring: every creator starts at the base, each matched filter
-// adds its weight, each evidence signal adds the bonus, and the total is capped.
-pub(crate) const BASE_MATCH_SCORE: i64 = 10;
-
-pub(crate) const MARKET_WEIGHT: i64 = 20;
-
-pub(crate) const LANGUAGE_WEIGHT: i64 = 20;
-
-pub(crate) const NICHE_WEIGHT: i64 = 25;
-
-pub(crate) const CHANNEL_WEIGHT: i64 = 10;
-
-pub(crate) const SIGNAL_BONUS: i64 = 5;
-
-pub(crate) const MAX_MATCH_SCORE: i64 = 100;
-
-/// An engagement rate at or above this counts as evidence of an audience.
-pub(crate) const STRONG_ENGAGEMENT_RATE: f64 = 0.03;
-
-/// A response rate at or above this counts as a creator who answers.
-pub(crate) const RESPONSIVE_RATE: f64 = 0.5;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatorSeed {
     pub display_name: String,
@@ -202,7 +173,7 @@ impl<'a> StandaloneService<'a> {
                 metadata,
             )?);
         }
-        let portal = self.create_portal_access(&creator.id, portal_days.or(Some(PORTAL_VALIDITY_DAYS)))?;
+        let portal = self.create_portal_access(&creator.id, portal_days)?;
         self.audit("creator", &creator.id, "self_registered", json!({}))?;
         Ok(json!({
             "creator": creator,

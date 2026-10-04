@@ -68,15 +68,15 @@ impl<'a> StandaloneService<'a> {
                 continue;
             }
 
-            let mut score = BASE_MATCH_SCORE;
+            // A match is ranked by how much of what was asked for, and of the evidence
+            // the caller set a bar for, it shows: one point per matched filter or signal,
+            // with no weights and no cap chosen here.
             let mut matched = Vec::new();
             let mut missing = Vec::new();
             score_filter(
                 &query.markets,
                 &creator.markets,
                 "market",
-                MARKET_WEIGHT,
-                &mut score,
                 &mut matched,
                 &mut missing,
             );
@@ -84,8 +84,6 @@ impl<'a> StandaloneService<'a> {
                 &query.languages,
                 &creator.languages,
                 "language",
-                LANGUAGE_WEIGHT,
-                &mut score,
                 &mut matched,
                 &mut missing,
             );
@@ -93,8 +91,6 @@ impl<'a> StandaloneService<'a> {
                 &query.niches,
                 &creator.niches,
                 "niche",
-                NICHE_WEIGHT,
-                &mut score,
                 &mut matched,
                 &mut missing,
             );
@@ -102,39 +98,39 @@ impl<'a> StandaloneService<'a> {
                 &query.channels,
                 &identity_channels,
                 "channel",
-                CHANNEL_WEIGHT,
-                &mut score,
                 &mut matched,
                 &mut missing,
             );
-            let engagement = metadata_f64(&creator.metadata, "engagement_rate").unwrap_or_default();
-            if engagement >= STRONG_ENGAGEMENT_RATE {
-                score += SIGNAL_BONUS;
-                matched.push("engagement".into());
-            } else {
-                missing.push("engagement evidence".into());
+            let engagement = metadata_f64(&creator.metadata, "engagement_rate");
+            if let Some(bar) = query.min_engagement_rate {
+                if engagement.is_some_and(|rate| rate >= bar) {
+                    matched.push("engagement".into());
+                } else {
+                    missing.push("engagement evidence".into());
+                }
             }
             let completed =
                 metadata_i64(&creator.metadata, "completed_campaigns").unwrap_or_default();
             if completed > 0 {
-                score += SIGNAL_BONUS;
                 matched.push("campaign history".into());
             } else {
                 missing.push("campaign history".into());
             }
-            let response = metadata_f64(&creator.metadata, "response_rate").unwrap_or_default();
-            if response >= RESPONSIVE_RATE {
-                score += SIGNAL_BONUS;
-                matched.push("response rate".into());
+            let response = metadata_f64(&creator.metadata, "response_rate");
+            if let Some(bar) = query.min_response_rate {
+                if response.is_some_and(|rate| rate >= bar) {
+                    matched.push("response rate".into());
+                } else {
+                    missing.push("response rate".into());
+                }
             }
             let portfolio = metadata_i64(&creator.metadata, "portfolio_count").unwrap_or_default();
             if portfolio > 0 {
-                score += SIGNAL_BONUS;
                 matched.push("portfolio".into());
             } else {
                 missing.push("portfolio".into());
             }
-            score = score.min(MAX_MATCH_SCORE);
+            let score = matched.len() as i64;
             matches.push(CreatorMatch {
                 creator,
                 score,
@@ -157,7 +153,9 @@ impl<'a> StandaloneService<'a> {
                 .cmp(&left.score)
                 .then_with(|| left.creator.display_name.cmp(&right.creator.display_name))
         });
-        matches.truncate(query.limit.unwrap_or_else(|| DEFAULT_DISCOVERY_LIMIT));
+        if let Some(limit) = query.limit {
+            matches.truncate(limit);
+        }
         Ok(matches)
     }
     pub fn launch_campaign(

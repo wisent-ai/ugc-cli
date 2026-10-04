@@ -2,7 +2,13 @@ use super::*;
 
 #[allow(unused_variables)]
 pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) -> Result<()> {
-    let RunScope { store, service, standalone, asset_dir, actor } = scope;
+    let RunScope {
+        store,
+        service,
+        standalone,
+        asset_dir,
+        actor,
+    } = scope;
     match command {
         StandaloneCommand::ImportCreators { file } => {
             let seeds: Vec<CreatorSeed> = serde_json::from_slice(
@@ -20,6 +26,8 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
             min_followers,
             max_rate_minor,
             limit,
+            min_engagement_rate,
+            min_response_rate,
         } => output(&standalone.discover(DiscoveryQuery {
             campaign_id: campaign,
             markets,
@@ -29,6 +37,8 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
             min_followers,
             max_rate_minor,
             limit,
+            min_engagement_rate,
+            min_response_rate,
         })?)?,
         StandaloneCommand::Launch {
             campaign,
@@ -40,6 +50,8 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
             min_followers,
             max_rate_minor,
             limit,
+            min_engagement_rate,
+            min_response_rate,
             offer_minor,
             shipping_required,
             portal_days,
@@ -55,6 +67,8 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
                 min_followers,
                 max_rate_minor,
                 limit,
+                min_engagement_rate,
+                min_response_rate,
             },
             offer_minor,
             shipping_required,

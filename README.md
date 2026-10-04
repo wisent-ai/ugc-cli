@@ -247,7 +247,7 @@ same flags: text is the screen walk and JSON is one result document.
 | `shipment`, `submission`, `asset` | physical and media delivery lifecycle |
 | `rights`, `payment`, `message` | rights, compensation records, and communication |
 | `sync`, `webhook` | explicit outbox and inbound event processing |
-| `standalone` | local discovery, conversations, portal, ledger, publication, metrics, dashboard, serve, import/export |
+| `standalone` | local discovery, conversations, portal, ledger, publication, metrics, dashboard, serve, import/export; `discover` and `launch` return or reach every matching creator unless `--limit` names how many, rank a match by the count of asked-for filters and evidence it meets (engagement and response rates count only against `--min-engagement-rate` and `--min-response-rate` when given), and a portal expires only after the days the caller states with `--days`, `--portal-days` or `serve --portal-days` |
 | `automation`, `credential`, `analysis` | a browser action on a creator platform account, a credential source check or vault reference, a model analysis of one record; the Wisent services behind them are adapters |
 | `audit`, `diagnostics` | evidence and operator readiness |
 

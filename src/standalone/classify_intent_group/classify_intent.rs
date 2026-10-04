@@ -57,12 +57,12 @@ pub(crate) fn classify_intent(body: &str) -> String {
     .into()
 }
 
+/// Whether a creator meets one asked-for filter, recorded by name in `matched` or
+/// `missing`; a filter nobody asked for is neither.
 pub(crate) fn score_filter(
     expected: &[String],
     actual: &[String],
     label: &str,
-    weight: i64,
-    score: &mut i64,
     matched: &mut Vec<String>,
     missing: &mut Vec<String>,
 ) {
@@ -70,7 +70,6 @@ pub(crate) fn score_filter(
         return;
     }
     if overlap(expected, actual) {
-        *score += weight;
         matched.push(label.into());
     } else {
         missing.push(label.into());

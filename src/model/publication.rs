@@ -49,6 +49,14 @@ pub struct DiscoveryQuery {
     pub min_followers: Option<i64>,
     pub max_rate_minor: Option<i64>,
     pub limit: Option<usize>,
+    /// Engagement rate from which a creator's audience counts as evidence; unset, the
+    /// rate is reported and not ranked.
+    #[serde(default)]
+    pub min_engagement_rate: Option<f64>,
+    /// Response rate from which a creator counts as one who answers; unset, the rate
+    /// is reported and not ranked.
+    #[serde(default)]
+    pub min_response_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
