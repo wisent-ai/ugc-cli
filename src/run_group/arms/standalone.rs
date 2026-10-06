@@ -120,6 +120,9 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
             output(&standalone.create_portal_access(&creator, days)?)?
         }
         StandaloneCommand::PortalRevoke { id } => output(&standalone.revoke_portal(&id)?)?,
+        StandaloneCommand::PortalList { creator } => {
+            output(&store.list::<PortalAccess>("portal_access", creator.as_deref(), None)?)?
+        }
         StandaloneCommand::LedgerFund {
             assignment,
             amount_minor,

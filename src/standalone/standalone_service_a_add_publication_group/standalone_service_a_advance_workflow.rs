@@ -131,7 +131,7 @@ impl<'a> StandaloneService<'a> {
             }
             let rights: Vec<UsageRights> =
                 self.store
-                    .list("usage_rights", Some(&assignment.id), None)?;
+                    .list("usage_rights", Some(&assignment.id), Some("active"))?;
             let approved_assets: Vec<Asset> = match approved_submission {
                 Some(submission) => self.store.list("asset", Some(&submission.id), None)?,
                 None => Vec::new(),

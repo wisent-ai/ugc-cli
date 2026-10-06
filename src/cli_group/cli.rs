@@ -9,8 +9,10 @@ use super::*;
 pub(crate) struct Cli {
     #[arg(long, global = true, help = "Private asset directory; else UGC_ASSET_DIR. No directory is assumed")]
     pub(crate) asset_dir: Option<PathBuf>,
+    /// Global so it may follow the subcommand; clap cannot require a global
+    /// argument, so `run` refuses a command without it.
     #[arg(long, global = true, help = "Who acts, as the audit record names it")]
-    pub(crate) actor: String,
+    pub(crate) actor: Option<String>,
     /// Print structured answers as `path: value` lines; onboarding uses its
     /// screen walk. Without this, structured commands print JSON.
     #[arg(long, global = true)]
@@ -91,6 +93,21 @@ pub(crate) enum ConnectionCommand {
     Health {
         id: String,
     },
+    /// Change a connection's name, base URL, token or webhook-secret source, or external account; its provider and sync cursor stay.
+    Edit {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long = "token-source")]
+        token_source: Option<String>,
+        #[arg(long = "webhook-secret-source")]
+        webhook_secret_source: Option<String>,
+        #[arg(long)]
+        external_account_id: Option<String>,
+    },
+    /// Remove a connection; refused while an assignment, creator identity or publication names it.
     Remove {
         id: String,
     },
@@ -263,6 +280,24 @@ pub(crate) enum CreatorCommand {
     Identities {
         #[arg(long)]
         creator: String,
+    },
+    /// Take back one platform identity of a creator.
+    IdentityRemove {
+        id: String,
+    },
+    /// Change a creator's name, email, languages, markets or niches; identities and assignments stay.
+    Edit {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        email: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        languages: Option<Vec<String>>,
+        #[arg(long, value_delimiter = ',')]
+        markets: Option<Vec<String>>,
+        #[arg(long, value_delimiter = ',')]
+        niches: Option<Vec<String>>,
     },
     /// Remove a creator and their identities; refused while assignments name them.
     Remove {

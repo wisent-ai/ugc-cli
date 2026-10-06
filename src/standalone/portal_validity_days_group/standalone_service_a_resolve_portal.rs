@@ -98,7 +98,7 @@ impl<'a> StandaloneService<'a> {
         let assets: Vec<Asset> = self.store.list("asset", Some(&submission.id), None)?;
         let rights: Vec<UsageRights> =
             self.store
-                .list("usage_rights", Some(&assignment.id), None)?;
+                .list("usage_rights", Some(&assignment.id), Some("active"))?;
         let applicable_rights: Vec<&UsageRights> = rights
             .iter()
             .filter(|rights| {

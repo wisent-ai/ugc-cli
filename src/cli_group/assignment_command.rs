@@ -202,6 +202,12 @@ pub(crate) enum RightsCommand {
         #[arg(long)]
         assignment: String,
     },
+    /// Revoke a grant; it stays as the record of what was licensed and no check counts it any more.
+    Revoke {
+        id: String,
+        #[arg(long)]
+        reason: String,
+    },
 }
 
 #[derive(Args)]

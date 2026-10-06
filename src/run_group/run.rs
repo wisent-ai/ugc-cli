@@ -3,15 +3,18 @@ use super::*;
 pub(crate) fn run() -> Result<()> {
     let cli = Cli::parse();
     set_text(cli.text);
+    let actor = cli.actor.clone().ok_or_else(|| {
+        anyhow::anyhow!("--actor is required: name who acts, as the audit record names it")
+    })?;
     let asset_dir = asset_dir(cli.asset_dir)?;
     let store = Store::open()?;
     let service = UgcService {
         store: &store,
-        actor: &cli.actor,
+        actor: &actor,
     };
     let standalone = StandaloneService {
         store: &store,
-        actor: &cli.actor,
+        actor: &actor,
     };
 
     let scope = RunScope {
@@ -19,7 +22,7 @@ pub(crate) fn run() -> Result<()> {
         service: &service,
         standalone: &standalone,
         asset_dir: &asset_dir,
-        actor: &cli.actor,
+        actor: &actor,
     };
 
     match cli.command {
@@ -27,7 +30,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Campaign(args) => run_campaign(args.command, scope)?,
         Command::Onboarding(args) => onboarding::run(
             &onboarding_dir(&asset_dir),
-            &cli.actor,
+            &actor,
             &store,
             args.reset,
             args.import.as_deref(),

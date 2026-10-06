@@ -27,10 +27,15 @@ pub(crate) fn run_connection(command: ConnectionCommand, scope: RunScope<'_>) ->
             let connection: Connection = store.get("connection", &id)?;
             output(&provider::adapter(&connection)?.health()?)?;
         }
-        ConnectionCommand::Remove { id } => {
-            store.delete("connection", &id)?;
-            output(&json!({"removed": id}))?;
-        }
+        ConnectionCommand::Edit { id, name, base_url, token_source, webhook_secret_source, external_account_id } => output(&service.edit_connection(
+            &id,
+            name,
+            base_url,
+            token_source,
+            webhook_secret_source,
+            external_account_id,
+        )?)?,
+        ConnectionCommand::Remove { id } => output(&service.remove_connection(&id)?)?,
     }
     Ok(())
 }
@@ -173,6 +178,10 @@ pub(crate) fn run_creator(command: CreatorCommand, scope: RunScope<'_>) -> Resul
         )?)?,
         CreatorCommand::Identities { creator } => {
             output(&store.list::<CreatorIdentity>("creator_identity", Some(&creator), None)?)?
+        }
+        CreatorCommand::IdentityRemove { id } => output(&service.remove_creator_identity(&id)?)?,
+        CreatorCommand::Edit { id, name, email, languages, markets, niches } => {
+            output(&service.edit_creator(&id, name, email, languages, markets, niches)?)?
         }
         CreatorCommand::Remove { id } => output(&service.remove_creator(&id)?)?,
     }

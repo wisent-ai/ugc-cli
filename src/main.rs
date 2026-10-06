@@ -27,7 +27,7 @@ use crate::{
     media::QcPolicy,
     model::{
         Assignment, Brief, Campaign, Connection, Creator, CreatorIdentity, DiscoveryQuery, Message,
-        Payment, Publication, Shipment, ShippingAddress, Submission, UsageRights,
+        Payment, PortalAccess, Publication, Shipment, ShippingAddress, Submission, UsageRights,
     },
     service::UgcService,
     standalone::{CreatorSeed, MetricInput, StandaloneService},

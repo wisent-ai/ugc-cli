@@ -161,6 +161,7 @@ pub(crate) fn run_rights(command: RightsCommand, scope: RunScope<'_>) -> Result<
         RightsCommand::List { assignment } => {
             output(&store.list::<UsageRights>("usage_rights", Some(&assignment), None)?)?
         }
+        RightsCommand::Revoke { id, reason } => output(&service.revoke_rights(&id, &reason)?)?,
     }
     Ok(())
 }

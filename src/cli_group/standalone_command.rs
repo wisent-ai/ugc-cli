@@ -138,6 +138,11 @@ pub(crate) enum StandaloneCommand {
     PortalRevoke {
         id: String,
     },
+    /// Every portal access, or one creator's; the token itself is never shown, only its hash and status.
+    PortalList {
+        #[arg(long)]
+        creator: Option<String>,
+    },
     LedgerFund {
         #[arg(long)]
         assignment: String,

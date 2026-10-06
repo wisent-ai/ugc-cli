@@ -242,12 +242,12 @@ same flags: text is the screen walk and JSON is one result document.
 
 | Command family | Contract |
 |---|---|
-| `connection` | provider connection lifecycle and health |
-| `campaign`, `brief`, `creator`, `assignment` | campaign planning and people/work records; `campaign edit` changes name, objective, deadline or budget and `campaign status <id> cancelled` retires it, `brief archive` retires a draft or approved brief, `creator remove` removes a creator and their identities and is refused while assignments name them |
+| `connection` | provider connection lifecycle and health; `connection edit` changes its name, base URL, token or webhook-secret source, or external account and keeps its provider and sync cursor; `connection remove` is refused while an assignment, creator identity or publication names it (`connection … cannot be removed while these name it: …`) |
+| `campaign`, `brief`, `creator`, `assignment` | campaign planning and people/work records; `campaign edit` changes name, objective, deadline or budget and `campaign status <id> cancelled` retires it, `brief archive` retires a draft or approved brief, `creator edit` changes a creator's name, email, languages, markets or niches, `creator identity-remove` takes back one platform identity, `creator remove` removes a creator and their identities and is refused while assignments name them |
 | `shipment`, `submission`, `asset` | physical and media delivery lifecycle |
-| `rights`, `payment`, `message` | rights, compensation records, and communication |
+| `rights`, `payment`, `message` | rights, compensation records, and communication; `rights revoke <id> --reason …` keeps the grant as the record of what was licensed, marks it revoked, and `rights check`, release and the campaign workflow stop counting it (`usage rights … are already revoked`) |
 | `sync`, `webhook` | explicit outbox and inbound event processing |
-| `standalone` | local discovery, conversations, portal, ledger, publication, metrics, dashboard, serve, import/export; `discover` and `launch` return or reach every matching creator unless `--limit` names how many, rank a match by the count of asked-for filters and evidence it meets (engagement and response rates count only against `--min-engagement-rate` and `--min-response-rate` when given), and a portal expires only after the days the caller states with `--days`, `--portal-days` or `serve --portal-days` |
+| `standalone` | local discovery, conversations, portal, ledger, publication, metrics, dashboard, serve, import/export; `discover` and `launch` return or reach every matching creator unless `--limit` names how many, rank a match by the count of asked-for filters and evidence it meets (engagement and response rates count only against `--min-engagement-rate` and `--min-response-rate` when given), and a portal expires only after the days the caller states with `--days`, `--portal-days` or `serve --portal-days`; `portal-create`, `portal-list [--creator]` and `portal-revoke` cover a creator's portal access, listed with its status and token hash, never the token |
 | `automation`, `credential`, `analysis` | a browser action on a creator platform account, a credential source check or vault reference, a model analysis of one record; the Wisent services behind them are adapters |
 | `audit`, `diagnostics` | evidence and operator readiness |
 
