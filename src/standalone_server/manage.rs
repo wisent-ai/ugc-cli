@@ -78,6 +78,15 @@ pub(crate) struct StatusChange {
     pub(crate) status: String,
 }
 
+#[derive(Deserialize)]
+struct CreatorChanges {
+    name: Option<String>,
+    email: Option<String>,
+    languages: Option<Vec<String>>,
+    markets: Option<Vec<String>>,
+    niches: Option<Vec<String>>,
+}
+
 /// The answer for a lifecycle route, or `None` when the path is not one.
 pub(crate) fn manage_api(core: &UgcService<'_>, request: &Request) -> Result<Option<Response>> {
     if request.method == "POST" {
@@ -85,26 +94,46 @@ pub(crate) fn manage_api(core: &UgcService<'_>, request: &Request) -> Result<Opt
             "/api/campaigns" => {
                 let input: NewCampaign = request.json()?;
                 Some(serde_json::to_value(core.create_campaign(
-                    input.name, input.brand, input.product, input.objective,
-                    input.markets, input.languages, input.channels, input.budget_minor,
-                    input.currency, input.deadline,
+                    input.name,
+                    input.brand,
+                    input.product,
+                    input.objective,
+                    input.markets,
+                    input.languages,
+                    input.channels,
+                    input.budget_minor,
+                    input.currency,
+                    input.deadline,
                 )?)?)
             }
             "/api/briefs" => {
                 let input: NewBrief = request.json()?;
                 Some(serde_json::to_value(core.add_brief(
-                    input.campaign_id, input.service_type, input.creative_angle,
-                    input.requirements, input.forbidden_claims, input.required_shots,
-                    input.talking_points, input.cta, input.duration_min_ms,
-                    input.duration_max_ms, input.aspect_ratios, input.raw_footage_required,
-                    input.revision_limit, input.rights_requirements,
+                    input.campaign_id,
+                    input.service_type,
+                    input.creative_angle,
+                    input.requirements,
+                    input.forbidden_claims,
+                    input.required_shots,
+                    input.talking_points,
+                    input.cta,
+                    input.duration_min_ms,
+                    input.duration_max_ms,
+                    input.aspect_ratios,
+                    input.raw_footage_required,
+                    input.revision_limit,
+                    input.rights_requirements,
                 )?)?)
             }
             "/api/creators" => {
                 let input: NewCreator = request.json()?;
                 Some(serde_json::to_value(core.add_creator(
-                    input.display_name, input.email, input.languages, input.markets,
-                    input.niches, input.metadata,
+                    input.display_name,
+                    input.email,
+                    input.languages,
+                    input.markets,
+                    input.niches,
+                    input.metadata,
                 )?)?)
             }
             _ => None,
@@ -118,7 +147,9 @@ pub(crate) fn manage_api(core: &UgcService<'_>, request: &Request) -> Result<Opt
         if let Some(id) = rest.strip_suffix("/status") {
             if request.method == "POST" {
                 let change: StatusChange = request.json()?;
-                return ok(serde_json::to_value(core.campaign_status(id, &change.status)?)?);
+                return ok(serde_json::to_value(
+                    core.campaign_status(id, &change.status)?,
+                )?);
             }
         } else if request.method == "PATCH" {
             let changes: CampaignChanges = request.json()?;
@@ -131,12 +162,27 @@ pub(crate) fn manage_api(core: &UgcService<'_>, request: &Request) -> Result<Opt
             )?)?);
         }
     }
-    if let Some(id) = request.path.strip_prefix("/api/briefs/").and_then(|path| path.strip_suffix("/archive")) {
+    if let Some(id) = request
+        .path
+        .strip_prefix("/api/briefs/")
+        .and_then(|path| path.strip_suffix("/archive"))
+    {
         if request.method == "POST" {
             return ok(serde_json::to_value(core.archive_brief(id)?)?);
         }
     }
     if let Some(id) = request.path.strip_prefix("/api/creators/") {
+        if request.method == "PATCH" {
+            let changes: CreatorChanges = request.json()?;
+            return ok(serde_json::to_value(core.edit_creator(
+                id,
+                changes.name,
+                changes.email,
+                changes.languages,
+                changes.markets,
+                changes.niches,
+            )?)?);
+        }
         if request.method == "DELETE" {
             return ok(serde_json::to_value(core.remove_creator(id)?)?);
         }
@@ -168,6 +214,8 @@ pub(crate) fn manage_section() -> &'static str {
 <button onclick="editCampaign()">Save campaign changes</button><button onclick="cancelCampaign()">Cancel campaign</button>
 <label>Brief id<input id="brief-id"></label><button onclick="archiveBrief()">Archive brief</button>
 <label>Creator id<input id="creator-id"></label><button onclick="removeCreator()">Remove creator</button>
+<label>Creator changes (JSON: name, email, languages, markets, niches)<textarea id="creator-changes">{}</textarea></label>
+<button onclick="editCreator()">Save creator changes</button>
 <pre id="manage-result" role="status"></pre></section>
 <script>
 const field=id=>document.getElementById(id).value.trim();
@@ -193,5 +241,6 @@ function editCampaign(){operatorCall('PATCH',`/api/campaigns/${encodeURIComponen
 function cancelCampaign(){operatorCall('POST',`/api/campaigns/${encodeURIComponent(field('campaign-id'))}/status`,{status:'cancelled'});}
 function archiveBrief(){operatorCall('POST',`/api/briefs/${encodeURIComponent(field('brief-id'))}/archive`,{});}
 function removeCreator(){operatorCall('DELETE',`/api/creators/${encodeURIComponent(field('creator-id'))}`);}
+function editCreator(){operatorCall('PATCH',`/api/creators/${encodeURIComponent(field('creator-id'))}`,()=>object('creator-changes'));}
 </script>"#
 }

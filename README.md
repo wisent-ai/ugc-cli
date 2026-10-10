@@ -72,6 +72,11 @@ Both commands call the same store import operation. It validates every record, t
 
 The root operator screen served by `ugc-cli standalone serve` submits the same record array to authenticated `POST /api/import`; success follows commit, conflicts return 409, and malformed input returns 400. The operation returns `imported`, `unchanged`, `conflicting`, and `rejected` record lists and never prints credential contents.
 The same screen creates campaigns, briefs and creators through authenticated `POST /api/campaigns`, `POST /api/briefs` and `POST /api/creators`, calling `campaign create`, `brief add` and `creator add`'s shared service methods. It edits or cancels a campaign, archives a brief and removes a creator through `PATCH /api/campaigns/{id}`, `POST /api/campaigns/{id}/status`, `POST /api/briefs/{id}/archive` and `DELETE /api/creators/{id}`. The result area shows the operation, HTTP status and response (or a network/input failure); an unknown id, a creator assignments still name, an already archived brief, malformed JSON or invalid numeric input does not appear as success.
+Creator changes use authenticated `PATCH /api/creators/{id}` and the screen's
+**Save creator changes** control. Its JSON object accepts `name`, `email`,
+`languages`, `markets` and `niches`; omitted fields stay unchanged, and an empty
+array clears a list. The shared `creator edit` service refuses an empty change
+and preserves identities and assignments.
 
 ## Product boundaries
 
