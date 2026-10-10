@@ -147,6 +147,8 @@ and preserves identities and assignments.
 - Missing follower, campaign-history and portfolio counts remain `null` in
   discovery signals. A stated follower minimum or price maximum requires
   observed evidence; an unknown count or rate does not satisfy that filter.
+- Portal validity must fit the supported duration and calendar date; an
+  unrepresentable expiry is refused before a portal token record is written.
 
 ### Review content and usage rights
 

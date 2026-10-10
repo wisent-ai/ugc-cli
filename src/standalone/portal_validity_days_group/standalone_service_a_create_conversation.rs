@@ -246,7 +246,16 @@ impl<'a> StandaloneService<'a> {
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let token_hash = hash_token(&token);
         let now = Store::now();
-        let expires_at = days.map(|days| (Utc::now() + Duration::days(days)).to_rfc3339());
+        let expires_at = days
+            .map(|days| {
+                let duration = Duration::try_days(days)
+                    .context("portal validity days exceed the supported duration")?;
+                Utc::now()
+                    .checked_add_signed(duration)
+                    .map(|expiry| expiry.to_rfc3339())
+                    .context("portal validity days exceed the supported expiry date")
+            })
+            .transpose()?;
         let access = PortalAccess {
             id: Store::id(),
             creator_id: creator_id.into(),
