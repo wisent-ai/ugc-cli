@@ -144,6 +144,9 @@ and preserves identities and assignments.
   creator was considered, contacted, accepted, or opted out.
 - **Boundary:** native marketplace or messaging access requires a separately
   authorized adapter; opt-outs must remain effective.
+- Missing follower, campaign-history and portfolio counts remain `null` in
+  discovery signals. A stated follower minimum or price maximum requires
+  observed evidence; an unknown count or rate does not satisfy that filter.
 
 ### Review content and usage rights
 

@@ -53,17 +53,17 @@ impl<'a> StandaloneService<'a> {
             {
                 continue;
             }
-            let followers = metadata_i64(&creator.metadata, "followers").unwrap_or_default();
+            let followers = metadata_i64(&creator.metadata, "followers");
             let rate = metadata_i64(&creator.metadata, "base_rate_minor");
             if query
                 .min_followers
-                .is_some_and(|minimum| followers < minimum)
+                .is_some_and(|minimum| followers.is_none_or(|count| count < minimum))
             {
                 continue;
             }
             if query
                 .max_rate_minor
-                .is_some_and(|maximum| rate.is_some_and(|candidate| candidate > maximum))
+                .is_some_and(|maximum| rate.is_none_or(|candidate| candidate > maximum))
             {
                 continue;
             }
@@ -109,9 +109,8 @@ impl<'a> StandaloneService<'a> {
                     missing.push("engagement evidence".into());
                 }
             }
-            let completed =
-                metadata_i64(&creator.metadata, "completed_campaigns").unwrap_or_default();
-            if completed > 0 {
+            let completed = metadata_i64(&creator.metadata, "completed_campaigns");
+            if completed.is_some_and(|count| count > 0) {
                 matched.push("campaign history".into());
             } else {
                 missing.push("campaign history".into());
@@ -124,8 +123,8 @@ impl<'a> StandaloneService<'a> {
                     missing.push("response rate".into());
                 }
             }
-            let portfolio = metadata_i64(&creator.metadata, "portfolio_count").unwrap_or_default();
-            if portfolio > 0 {
+            let portfolio = metadata_i64(&creator.metadata, "portfolio_count");
+            if portfolio.is_some_and(|count| count > 0) {
                 matched.push("portfolio".into());
             } else {
                 missing.push("portfolio".into());
