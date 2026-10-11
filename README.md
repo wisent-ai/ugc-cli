@@ -281,19 +281,9 @@ Use `ugc-cli <family> --help` for exact subcommands and required fields.
 
 ## Operational model
 
-- **Configuration:** the fleet database resolved through Stado, the asset
-  directory, actor, and optional provider/service settings.
-- **State:** the fleet ledger, content-addressed files, hashed portal tokens,
-  outbox, webhook log, and audit records.
-- **Credentials:** references belong in Skarbiec or provider-specific secret
-  stores; never export secret values with campaign data.
-- **Observability:** diagnostics, connection health, sync outbox, webhook log,
-  workflow view, dashboard, and audit trail.
-- **Recovery:** use standalone export/import plus private database and asset
-  backups; reconcile provider-side transactions before replaying outbox work.
-- **Cost:** local operation is not metered; managed workspace seats/campaigns and
-  pass-through messaging, shipping, media, provider, and payment costs are
-  separate and must be explicit.
+See [UGC CLI operations](docs/operations.md) for configuration, state, credential
+boundaries, recovery, cost, damaged-JSON diagnostics and real stored-data
+qualification.
 
 ## Project status and support
 

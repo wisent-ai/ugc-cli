@@ -76,7 +76,8 @@ impl Store {
     /// schema up to date. Stado and the credential bearer are found under
     /// `UGC_FLEET_HOME`, else `HOME`; a refusal names the step that failed.
     pub fn open() -> Result<Self> {
-        let database = stado_database::FleetDatabase::for_product(Self::DATABASE, "UGC_FLEET_HOME")?;
+        let database =
+            stado_database::FleetDatabase::for_product(Self::DATABASE, "UGC_FLEET_HOME")?;
         let db = Client::connect(&database)?;
         db.execute_batch(SCHEMA)
             .context("bringing the ugc-cli schema in the fleet database up to date")?;
@@ -239,7 +240,7 @@ impl Store {
                 "aggregate_id": row.get::<_, String>("aggregate_id")?,
                 "action": row.get::<_, String>("action")?,
                 "actor": row.get::<_, String>("actor")?,
-                "details": serde_json::from_str::<Value>(&details).unwrap_or(Value::String(details)),
+                "details": Self::stored_json("audit_events.details", details)?,
                 "created_at": row.get::<_, String>("created_at")?,
             }))
         })?;
