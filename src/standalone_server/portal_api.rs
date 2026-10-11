@@ -68,7 +68,7 @@ pub(crate) fn portal_api(
             if !assignment.shipping_required {
                 bail!("assignment does not require product shipping");
             }
-            if !matches!(assignment.status.as_str(), "accepted" | "product_shipping") {
+            if !shipping_editable(&assignment.status) {
                 bail!("shipping address cannot be changed in the current assignment state");
             }
             Ok(Response::json(
@@ -102,8 +102,8 @@ pub(crate) fn portal_api(
                 .headers
                 .get("x-role")
                 .map(String::as_str)
-                .unwrap_or("final");
-            if !matches!(role, "final" | "raw" | "thumbnail") {
+                .context("X-Role header is required: final, raw, or thumbnail")?;
+            if !submission_role_known(role) {
                 bail!("submission role must be final, raw, or thumbnail");
             }
             let encoded_name = request
@@ -205,9 +205,7 @@ pub(crate) fn portal_page(store: &Store, token: &str, actor: &str) -> Result<Res
     }
     html.push_str("<h2>Assignments</h2>");
     for assignment in assignments {
-        if assignment.shipping_required
-            && matches!(assignment.status.as_str(), "accepted" | "product_shipping")
-        {
+        if assignment.shipping_required && shipping_editable(&assignment.status) {
             html.push_str(&format!(
                 "<section><strong>Shipping address</strong><input id=\"ship-name-{}\" placeholder=\"Recipient name\"><input id=\"ship-line1-{}\" placeholder=\"Address line\"><input id=\"ship-line2-{}\" placeholder=\"Address line 2 (optional)\"><input id=\"ship-city-{}\" placeholder=\"City\"><input id=\"ship-region-{}\" placeholder=\"Region (optional)\"><input id=\"ship-postal-{}\" placeholder=\"Postal code\"><input id=\"ship-country-{}\" placeholder=\"Country code\"><button onclick=\"saveShipping('{}')\">Save shipping address</button></section>",
                 escape_html(&assignment.id),
@@ -220,17 +218,19 @@ pub(crate) fn portal_page(store: &Store, token: &str, actor: &str) -> Result<Res
                 escape_html(&assignment.id),
             ));
         }
+        // Compensation is shown only when recorded; an assignment without a
+        // recorded amount says so instead of showing a number.
+        let compensation = match assignment.compensation_minor {
+            Some(minor) => format!("{minor} {}", escape_html(&assignment.currency)),
+            None => "not recorded yet".to_string(),
+        };
         html.push_str(&format!(
-            "<section><strong>{}</strong><p>Status: {} · Compensation: {} {}</p>",
+            "<section><strong>{}</strong><p>Status: {} · Compensation: {}</p>",
             escape_html(&assignment.id),
             escape_html(&assignment.status),
-            assignment.compensation_minor.unwrap_or_default(),
-            escape_html(&assignment.currency),
+            compensation,
         ));
-        if matches!(
-            assignment.status.as_str(),
-            "in_production" | "revision_requested"
-        ) {
+        if accepts_media(&assignment.status) {
             html.push_str(&format!(
                 "<input id=\"file-{}\" type=\"file\" accept=\"video/*,image/*,audio/*\"><button onclick=\"submitAsset('{}')\">Submit media</button>",
                 escape_html(&assignment.id),
@@ -257,4 +257,32 @@ async function submitAsset(id){{const input=document.getElementById(`file-${{id}
 </script></main></body></html>"#
     ));
     Ok(Response::html(html))
+}
+
+/// Whether an assignment in `status` still takes a shipping address.
+fn shipping_editable(status: &str) -> bool {
+    match status {
+        "accepted" => true,
+        "product_shipping" => true,
+        _ => false,
+    }
+}
+
+/// Whether an assignment in `status` takes media submissions.
+fn accepts_media(status: &str) -> bool {
+    match status {
+        "in_production" => true,
+        "revision_requested" => true,
+        _ => false,
+    }
+}
+
+/// Whether `role` is a submission role the portal stores.
+fn submission_role_known(role: &str) -> bool {
+    match role {
+        "final" => true,
+        "raw" => true,
+        "thumbnail" => true,
+        _ => false,
+    }
 }
