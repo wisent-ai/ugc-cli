@@ -92,7 +92,7 @@ impl Store {
                 "connection_id": row.get::<_, String>("connection_id")?,
                 "provider_event_id": row.get::<_, String>("provider_event_id")?,
                 "event_type": row.get::<_, String>("event_type")?,
-                "payload": serde_json::from_str::<Value>(&payload).unwrap_or(Value::String(payload)),
+                "payload": Self::stored_json("webhook_events.payload", payload)?,
                 "signature_valid": row.get::<_, bool>("signature_valid")?,
                 "status": row.get::<_, String>("status")?,
                 "error": row.get::<_, Option<String>>("error")?,

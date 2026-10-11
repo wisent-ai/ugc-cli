@@ -87,7 +87,10 @@ impl Store {
             .collect();
         for record in &pending {
             if record.kind == "provider_event" && record.parent_id.is_none() {
-                rejected.push(import_issue(record, "provider event connection parent is missing"));
+                rejected.push(import_issue(
+                    record,
+                    "provider event connection parent is missing",
+                ));
             }
             if let Some(parent_id) = record.parent_id.as_deref() {
                 match available_records.get(parent_id) {
@@ -232,7 +235,7 @@ impl Store {
             secondary_id: row.get("secondary_id")?,
             status: row.get("status")?,
             external_id: row.get("external_id")?,
-            data: serde_json::from_str(&data).unwrap_or(Value::String(data)),
+            data: Self::stored_json("records.data", data)?,
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,
         })
@@ -245,13 +248,23 @@ impl Store {
             aggregate_type: row.get("aggregate_type")?,
             aggregate_id: row.get("aggregate_id")?,
             connection_id: row.get("connection_id")?,
-            payload: serde_json::from_str(&payload).unwrap_or(Value::String(payload)),
+            payload: Self::stored_json("outbox.payload", payload)?,
             status: row.get("status")?,
             attempts: row.get("attempts")?,
             available_at: row.get("available_at")?,
             last_error: row.get("last_error")?,
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,
+        })
+    }
+    /// A JSON column as written: every writer stores serialized JSON, so text
+    /// that does not parse is a damaged row, refused with the column named,
+    /// not served to callers as a JSON string.
+    pub(crate) fn stored_json(column: &str, text: String) -> stado_database::sync::Result<Value> {
+        serde_json::from_str(&text).map_err(|error| {
+            stado_database::sync::Error::Conversion(format!(
+                "{column} holds text that is not JSON ({error}): {text}"
+            ))
         })
     }
 }
