@@ -39,13 +39,25 @@ impl<'a> StandaloneService<'a> {
         conversation: &Conversation,
         intent: &str,
     ) -> Result<Option<ConversationMessage>> {
+        // An offer is stated only when one is recorded; without one the reply
+        // says no offer is recorded yet.
+        let offer = conversation
+            .offered_compensation_minor
+            .map(|minor| format!("{minor} {} in minor units", conversation.currency));
         let body = match intent {
-            "interested" => Some(format!("Thanks for your interest. The current offer is {} {} in minor units. Reply ACCEPT to confirm, or send your requested rate and questions.", conversation.offered_compensation_minor.unwrap_or_default(), conversation.currency)),
-            "pricing" => Some(format!("Thanks. Our recorded offer is {} {} in minor units. Send the rate you can accept and any scope assumptions; an operator will review changes.", conversation.offered_compensation_minor.unwrap_or_default(), conversation.currency)),
+            "interested" => Some(match &offer {
+                Some(offer) => format!("Thanks for your interest. The current offer is {offer}. Reply ACCEPT to confirm, or send your requested rate and questions."),
+                None => "Thanks for your interest. No offer is recorded for this campaign yet; a campaign operator will send one in this thread. You can send your requested rate and questions here.".into(),
+            }),
+            "pricing" => Some(match &offer {
+                Some(offer) => format!("Thanks. Our recorded offer is {offer}. Send the rate you can accept and any scope assumptions; an operator will review changes."),
+                None => "Thanks. No offer is recorded for this campaign yet. Send the rate you can accept and any scope assumptions; an operator will review them.".into(),
+            }),
             "question" => Some("Thanks for the question. We recorded it for the campaign operator. You can continue this thread; requirements and decisions remain attached to your portal record.".into()),
             "accepted" => Some("Acceptance recorded. Your assignment is now available in this portal with the agreed compensation and approved brief.".into()),
             "submitted" => Some("Delivery notice received. Upload or register the submission in the portal so it can enter QC and human review.".into()),
-            "opt_out" | "declined" => None,
+            "opt_out" => None,
+            "declined" => None,
             _ => Some("Thanks—we recorded your message. A campaign operator can review this thread and respond here.".into()),
         };
         body.map(|body| {

@@ -51,18 +51,21 @@ impl<'a> StandaloneService<'a> {
         let mut created = Vec::new();
         let mut existing = Vec::new();
         for seed in seeds {
-            let duplicate = seed.email.as_deref().and_then(|email| {
-                self.store
-                    .list::<Creator>("creator", None, None)
-                    .ok()?
+            // The duplicate check reads every creator; a read that fails fails
+            // the import rather than counting as "no such creator".
+            let duplicate = match seed.email.as_deref() {
+                Some(email) => self
+                    .store
+                    .list::<Creator>("creator", None, None)?
                     .into_iter()
                     .find(|creator| {
                         creator
                             .email
                             .as_deref()
                             .is_some_and(|candidate| candidate.eq_ignore_ascii_case(email))
-                    })
-            });
+                    }),
+                None => None,
+            };
             let creator = match duplicate {
                 Some(creator) => {
                     existing.push(creator.id.clone());
