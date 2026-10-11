@@ -79,8 +79,15 @@ pub(crate) fn run(
                     Store::DATABASE
                 ));
                 let evidence = fact(LEDGER_FACT);
-                advance(&definition, &screen, &mut state, &evidence, &revision, &progress)?
-                    .context("an open ledger does not satisfy the published journey")?;
+                advance(
+                    &definition,
+                    &screen,
+                    &mut state,
+                    &evidence,
+                    &revision,
+                    &progress,
+                )?
+                .context("an open ledger does not satisfy the published journey")?;
             }
             Some("first_success") => {
                 if let Some(file) = import_file {
@@ -113,9 +120,9 @@ pub(crate) fn run(
                         );
                         return report.emit();
                     }
-                    FirstCampaign::Unreadable(id) => {
+                    FirstCampaign::Unreadable { id, cause } => {
                         report.note(&format!(
-                            "The recorded campaign {id} can no longer be read out of this ledger."
+                            "The recorded campaign {id} can no longer be read out of this ledger: {cause:#}"
                         ));
                         report.finish(
                             "awaiting_campaign",
@@ -143,8 +150,15 @@ pub(crate) fn run(
             }
             Some(_) => {
                 wait_for_enter(unattended, "Press Enter to continue. ")?;
-                advance(&definition, &screen, &mut state, &Map::new(), &revision, &progress)?
-                    .context("published journey has no eligible next screen")?;
+                advance(
+                    &definition,
+                    &screen,
+                    &mut state,
+                    &Map::new(),
+                    &revision,
+                    &progress,
+                )?
+                .context("published journey has no eligible next screen")?;
             }
             None => bail!("published onboarding screen has no kind"),
         }
@@ -160,7 +174,7 @@ pub(crate) fn fact(name: &str) -> Map<String, Value> {
 /// can no longer be read back is not evidence that the ledger holds it.
 pub(crate) enum FirstCampaign {
     Accepted(Campaign),
-    Unreadable(String),
+    Unreadable { id: String, cause: anyhow::Error },
     None,
 }
 
@@ -174,7 +188,10 @@ pub(crate) fn first_campaign(store: &Store) -> Result<FirstCampaign> {
         .context("recorded first-success fact names no campaign")?;
     Ok(match store.get::<Campaign>("campaign", id) {
         Ok(campaign) => FirstCampaign::Accepted(campaign),
-        Err(_) => FirstCampaign::Unreadable(id.to_string()),
+        Err(cause) => FirstCampaign::Unreadable {
+            id: id.to_string(),
+            cause,
+        },
     })
 }
 
