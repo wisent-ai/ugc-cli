@@ -27,3 +27,7 @@ uuid = { version = "1.24.0", features = ["v4", "serde"] }
 [[test]]
 name = "stored_json"
 path = "tests/storage/json.rs"
+
+[[test]]
+name = "operator_approvals"
+path = "tests/lifecycle/approvals.rs"

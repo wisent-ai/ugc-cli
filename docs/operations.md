@@ -55,3 +55,40 @@ candidate binary digest, command arguments, exits, output and cleanup failures.
 The deliberately damaged records belong only to that run. This qualification
 covers persisted reads through the CLI, not provider delivery, webhook signature
 verification, graphical rendering or a public marketplace launch.
+
+## Operator approval and verification
+
+The authenticated operator screen's **Approve brief** control calls
+`POST /api/briefs/{id}/approve`, using the same transition as
+`ugc-cli brief approve ID`. An already approved or archived brief is refused.
+**Record creator verification** posts the explicitly entered JSON object to
+`POST /api/creators/{id}/verify`, using `ugc-cli creator verify ID --metadata JSON`'s
+service operation. Invalid JSON or a non-object is refused. This records the
+operator's evidence; it does not contact an identity provider or certify the
+truth of that evidence.
+
+Both controls share the operator token and the existing result area, which
+shows the request, HTTP status and cause. A transport error or refused response
+is not approval. CLI reads of the same brief or creator expose the retained
+state.
+
+`tests/lifecycle/approvals.rs` creates its own campaign, brief and creator
+through the actual CLI, verifies authenticated HTTP mutations through CLI
+readback, checks unauthorized approval, repeated approval and non-object
+verification refusals, and independently removes its owned rows.
+Use the same isolated fleet database as the operator server. In addition to
+`UGC_TEST_DATABASE_NAME` and `UGC_TEST_SOURCE_REVISION`, declare
+`UGC_TEST_OPERATOR_ORIGIN`, `UGC_TEST_OPERATOR_TOKEN_FILE`,
+`UGC_TEST_DEPLOYMENT_EVIDENCE`, `UGC_TEST_CURRENCY` and `UGC_TEST_SERVICE_TYPE`.
+The retained deployment evidence must identify the running server; its HTTP
+responses do not attest their revision.
+
+```sh
+cargo test --test operator_approvals -- --ignored --nocapture
+```
+
+Reports under `target/real-tests/operator-approvals/` retain source and binary
+identity, the declaration evidence, requests, CLI results and cleanup failures.
+The token is read from its file, not recorded in the report. A separate Weles
+journey must observe the graphical controls on a dedicated host; HTTP readback
+does not prove rendering or external creator verification.

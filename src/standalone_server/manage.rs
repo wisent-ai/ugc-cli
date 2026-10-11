@@ -165,10 +165,30 @@ pub(crate) fn manage_api(core: &UgcService<'_>, request: &Request) -> Result<Opt
     if let Some(id) = request
         .path
         .strip_prefix("/api/briefs/")
+        .and_then(|path| path.strip_suffix("/approve"))
+    {
+        if request.method == "POST" {
+            return ok(serde_json::to_value(core.approve_brief(id)?)?);
+        }
+    }
+    if let Some(id) = request
+        .path
+        .strip_prefix("/api/briefs/")
         .and_then(|path| path.strip_suffix("/archive"))
     {
         if request.method == "POST" {
             return ok(serde_json::to_value(core.archive_brief(id)?)?);
+        }
+    }
+    if let Some(id) = request
+        .path
+        .strip_prefix("/api/creators/")
+        .and_then(|path| path.strip_suffix("/verify"))
+    {
+        if request.method == "POST" {
+            return ok(serde_json::to_value(
+                core.verify_creator(id, request.json()?)?,
+            )?);
         }
     }
     if let Some(id) = request.path.strip_prefix("/api/creators/") {
@@ -212,10 +232,12 @@ pub(crate) fn manage_section() -> &'static str {
 <section><h2>Manage campaigns, briefs and creators</h2>
 <label>Campaign id<input id="campaign-id"></label><label>New name<input id="campaign-name"></label><label>New objective<input id="campaign-objective"></label><label>New end date<input id="campaign-due"></label><label>New budget (minor units)<input id="campaign-budget" type="number"></label>
 <button onclick="editCampaign()">Save campaign changes</button><button onclick="cancelCampaign()">Cancel campaign</button>
-<label>Brief id<input id="brief-id"></label><button onclick="archiveBrief()">Archive brief</button>
+<label>Brief id<input id="brief-id"></label><button onclick="approveBrief()">Approve brief</button><button onclick="archiveBrief()">Archive brief</button>
 <label>Creator id<input id="creator-id"></label><button onclick="removeCreator()">Remove creator</button>
 <label>Creator changes (JSON: name, email, languages, markets, niches)<textarea id="creator-changes">{}</textarea></label>
 <button onclick="editCreator()">Save creator changes</button>
+<label>Verification evidence (JSON object)<textarea id="creator-verification"></textarea></label>
+<button onclick="verifyCreator()">Record creator verification</button>
 <pre id="manage-result" role="status"></pre></section>
 <script>
 const field=id=>document.getElementById(id).value.trim();
@@ -240,7 +262,9 @@ function addCreator(){operatorCall('POST','/api/creators',()=>({display_name:fie
 function editCampaign(){operatorCall('PATCH',`/api/campaigns/${encodeURIComponent(field('campaign-id'))}`,()=>{const changes={};if(field('campaign-name'))changes.name=field('campaign-name');if(field('campaign-objective'))changes.objective=field('campaign-objective');if(field('campaign-due'))changes.due_date=field('campaign-due');if(field('campaign-budget'))changes.budget_minor=integer('campaign-budget');return changes;});}
 function cancelCampaign(){operatorCall('POST',`/api/campaigns/${encodeURIComponent(field('campaign-id'))}/status`,{status:'cancelled'});}
 function archiveBrief(){operatorCall('POST',`/api/briefs/${encodeURIComponent(field('brief-id'))}/archive`,{});}
+function approveBrief(){operatorCall('POST',`/api/briefs/${encodeURIComponent(field('brief-id'))}/approve`,{});}
 function removeCreator(){operatorCall('DELETE',`/api/creators/${encodeURIComponent(field('creator-id'))}`);}
 function editCreator(){operatorCall('PATCH',`/api/creators/${encodeURIComponent(field('creator-id'))}`,()=>object('creator-changes'));}
+function verifyCreator(){operatorCall('POST',`/api/creators/${encodeURIComponent(field('creator-id'))}/verify`,()=>JSON.parse(field('creator-verification')));}
 </script>"#
 }
