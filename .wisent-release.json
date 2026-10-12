@@ -13,7 +13,8 @@
       "quality": [
         {
           "name": "cargo-check",
-          "argv": ["cargo", "check", "--locked"]
+          "argv": ["cargo", "check", "--locked"],
+          "kind": "lint"
         }
       ],
       "build": {
@@ -28,7 +29,8 @@
       "quality": [
         {
           "name": "cargo-check",
-          "argv": ["cargo", "check", "--locked"]
+          "argv": ["cargo", "check", "--locked"],
+          "kind": "lint"
         }
       ],
       "build": {
