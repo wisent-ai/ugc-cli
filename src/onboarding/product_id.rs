@@ -69,7 +69,7 @@ pub(crate) fn run(
         let screen_id = string_field(&state, "current_screen_id")
             .context("onboarding state has no current screen")?;
         let screen = screen_by_id(&definition, &screen_id)?.clone();
-        report.render(&screen);
+        report.render(&screen)?;
 
         match screen.get("screen_kind").and_then(Value::as_str) {
             Some("first_action") => {
@@ -198,13 +198,15 @@ pub(crate) fn first_campaign(store: &Store) -> Result<FirstCampaign> {
 /// Screens as they are shown, plus the terminal verdict. Human output is
 /// printed as the walk happens; `--json` collects the same walk into one
 /// object, because a machine reader wants one document, not a transcript.
+/// A journey version or current screen nothing stated is `null` in that
+/// object, not an empty name.
 pub(crate) struct Report {
-    pub(crate) journey_version: String,
+    pub(crate) journey_version: Option<String>,
     pub(crate) state_path: PathBuf,
     pub(crate) reset: bool,
     pub(crate) json: bool,
     pub(crate) steps: Vec<Value>,
     pub(crate) status: &'static str,
-    pub(crate) current_screen_id: String,
+    pub(crate) current_screen_id: Option<String>,
     pub(crate) next: String,
 }

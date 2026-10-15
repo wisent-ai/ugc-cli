@@ -29,10 +29,12 @@ use crate::{
     model::Campaign,
 };
 
+mod journey;
+mod load_or_start_state;
 mod product_id;
 mod report;
-mod load_or_start_state;
 
+pub use journey::*;
+pub use load_or_start_state::*;
 pub use product_id::*;
 pub use report::*;
-pub use load_or_start_state::*;
