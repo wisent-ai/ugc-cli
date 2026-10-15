@@ -98,19 +98,18 @@ impl Store {
                         record,
                         &format!("parent record is missing: {parent_id}"),
                     )),
-                    Some(actual_kind)
-                        if expected_parent_kind(&record.kind)
-                            .is_some_and(|expected| *actual_kind != expected) =>
-                    {
-                        rejected.push(import_issue(
-                            record,
-                            &format!(
-                                "parent record {parent_id} is {actual_kind}, expected {}",
-                                expected_parent_kind(&record.kind).unwrap_or_default()
-                            ),
-                        ));
+                    Some(actual_kind) => {
+                        if let Some(expected) = expected_parent_kind(&record.kind) {
+                            if *actual_kind != expected {
+                                rejected.push(import_issue(
+                                    record,
+                                    &format!(
+                                        "parent record {parent_id} is {actual_kind}, expected {expected}"
+                                    ),
+                                ));
+                            }
+                        }
                     }
-                    Some(_) => {}
                 }
             }
             if let Some(secondary_id) = record.secondary_id.as_deref() {
@@ -121,19 +120,19 @@ impl Store {
                             &format!("secondary record is missing: {secondary_id}"),
                         ));
                     }
-                    Some(actual_kind)
-                        if expected_secondary_kind(&record.kind)
-                            .is_some_and(|expected| *actual_kind != expected) =>
-                    {
-                        rejected.push(import_issue(
-                            record,
-                            &format!(
-                                "secondary record {secondary_id} is {actual_kind}, expected {}",
-                                expected_secondary_kind(&record.kind).unwrap_or_default()
-                            ),
-                        ));
+                    Some(actual_kind) => {
+                        if let Some(expected) = expected_secondary_kind(&record.kind) {
+                            if *actual_kind != expected {
+                                rejected.push(import_issue(
+                                    record,
+                                    &format!(
+                                        "secondary record {secondary_id} is {actual_kind}, expected {expected}"
+                                    ),
+                                ));
+                            }
+                        }
                     }
-                    _ => {}
+                    None => {}
                 }
             }
         }
