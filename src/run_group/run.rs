@@ -29,7 +29,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Connection(args) => run_connection(args.command, scope)?,
         Command::Campaign(args) => run_campaign(args.command, scope)?,
         Command::Onboarding(args) => onboarding::run(
-            &onboarding_dir(&asset_dir),
+            &onboarding_dir(&asset_dir)?,
             &actor,
             &store,
             args.reset,
@@ -72,13 +72,18 @@ pub(crate) fn run() -> Result<()> {
 }
 
 /// Where this operator's first-use progress is kept: beside the asset
-/// directory, since the ledger itself is the fleet's.
-fn onboarding_dir(asset_dir: &std::path::Path) -> PathBuf {
-    asset_dir
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
+/// directory, since the ledger itself is the fleet's. A relative directory
+/// named alone sits in the working directory, so its progress does too; a
+/// root directory has nothing beside it and is refused.
+fn onboarding_dir(asset_dir: &std::path::Path) -> Result<PathBuf> {
+    match asset_dir.parent() {
+        Some(parent) if parent.as_os_str().is_empty() => Ok(PathBuf::from(".")),
+        Some(parent) => Ok(parent.to_path_buf()),
+        None => Err(anyhow::anyhow!(
+            "the asset directory {} has no parent to keep first-use progress beside it",
+            asset_dir.display()
+        )),
+    }
 }
 
 /// What every subcommand handler reads: the ledger, the two services, the
