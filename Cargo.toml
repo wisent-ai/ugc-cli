@@ -47,3 +47,7 @@ path = "tests/cli/spellings.rs"
 [[test]]
 name = "portal_validity"
 path = "tests/portal/access.rs"
+
+[[test]]
+name = "creator_import"
+path = "tests/creators/import.rs"

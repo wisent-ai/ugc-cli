@@ -128,7 +128,9 @@ impl Store {
             )
             .optional()?;
         match raw {
-            Some(data) => Ok(serde_json::from_str(&data)?),
+            Some(data) => {
+                serde_json::from_str(&data).with_context(|| format!("{kind} {id} cannot be read"))
+            }
             None => bail!("{kind} not found: {id}"),
         }
     }
@@ -164,7 +166,7 @@ impl Store {
         parent_id: Option<&str>,
         status: Option<&str>,
     ) -> Result<Vec<T>> {
-        let mut sql = String::from("SELECT data FROM records WHERE kind=$1");
+        let mut sql = String::from("SELECT id, data FROM records WHERE kind=$1");
         if parent_id.is_some() {
             sql.push_str(" AND parent_id=$2");
             if status.is_some() {
@@ -181,21 +183,28 @@ impl Store {
             (None, Some(state)) => vec![kind.into(), state.into()],
             (None, None) => vec![kind.into()],
         };
-        let rows = stmt.query_map(texts(&values), |row| row.get::<_, String>("data"))?;
+        let rows = stmt.query_map(texts(&values), |row| {
+            Ok((row.get::<_, String>("id")?, row.get::<_, String>("data")?))
+        })?;
         let mut output = Vec::new();
         for row in rows {
-            output.push(serde_json::from_str(&row?)?);
+            let (id, data) = row?;
+            output.push(
+                serde_json::from_str(&data)
+                    .with_context(|| format!("{kind} {id} cannot be read"))?,
+            );
         }
         Ok(output)
     }
     pub fn delete(&self, kind: &str, id: &str) -> Result<()> {
-        let changed = self.db.execute(
-            "DELETE FROM records WHERE kind=$1 AND id=$2",
-            params![kind, id],
-        )?;
-        if changed == 0 {
-            bail!("{kind} not found: {id}");
-        }
+        self.db
+            .query_row(
+                "DELETE FROM records WHERE kind=$1 AND id=$2 RETURNING id",
+                params![kind, id],
+                |row| row.get::<_, String>("id"),
+            )
+            .optional()?
+            .with_context(|| format!("{kind} not found: {id}"))?;
         Ok(())
     }
     pub fn audit(
@@ -267,7 +276,9 @@ impl Store {
         let mut stmt = self.db.prepare(
             "SELECT * FROM outbox WHERE status IN ('pending','retry') AND available_at<=$1 ORDER BY created_at LIMIT $2"
         )?;
-        let sql_limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let sql_limit = i64::try_from(limit).with_context(|| {
+            format!("outbox limit {limit} exceeds the database's integer range")
+        })?;
         let rows = stmt.query_map(params![Self::now(), sql_limit], Self::map_outbox)?;
         rows.collect::<stado_database::sync::Result<Vec<_>>>()
             .map_err(Into::into)

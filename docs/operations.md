@@ -31,6 +31,17 @@ an external operation. Recover the exact stored record from authoritative data
 or a private backup, then repeat the read; this interface does not invent a
 replacement value.
 
+Every other ledger read, such as `ugc-cli creator list` or
+`ugc-cli creator show ID`, refuses a record whose `records.data` cannot be
+read with `KIND ID cannot be read` and the parser cause. `ugc-cli standalone
+import-creators FILE` matches each seed's email, ignoring case, against every
+stored creator and reports `created` and `existing` ids; when that creator list
+cannot be read the import stops with the same error at the seed it was
+matching, before creating it, instead of creating every emailed creator again.
+Seeds earlier in the file that were already imported stay imported.
+`tests/creators/import.rs` (`cargo test --test creator_import`) runs both on a
+fleet database of its own.
+
 ## Real stored-data qualification
 
 `tests/storage/json.rs` drives the actual compiled CLI and its existing Stado
