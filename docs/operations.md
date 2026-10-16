@@ -103,6 +103,14 @@ would judge and a ledger movement without a key. Each run writes
 `report.json` with the source revision, the binary digest and every command's
 exit and output.
 
+## Connections
+
+`ugc-cli connection add` and `connection edit` name a connection's secrets
+with `--token-source` and `--webhook-secret-source` only; `--token-env` and
+`--webhook-secret-env` are refused by the argument parser as unexpected
+arguments. `cargo test --test option_spellings` runs both refused spellings
+on a SQLite fleet database it creates and checks no connection was stored.
+
 ## Onboarding
 
 When the campaign the ledger stamped as its first success can no longer be

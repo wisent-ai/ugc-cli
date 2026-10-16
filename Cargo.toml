@@ -39,3 +39,7 @@ path = "tests/conversations/journey.rs"
 [[test]]
 name = "onboarding_campaign"
 path = "tests/onboarding/unreadable_campaign.rs"
+
+[[test]]
+name = "option_spellings"
+path = "tests/cli/spellings.rs"
