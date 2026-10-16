@@ -37,7 +37,7 @@ impl<'a> StandaloneService<'a> {
     pub(crate) fn automatic_reply(
         &self,
         conversation: &Conversation,
-        intent: &str,
+        intent: Intent,
     ) -> Result<Option<ConversationMessage>> {
         // An offer is stated only when one is recorded; without one the reply
         // says no offer is recorded yet.
@@ -45,20 +45,19 @@ impl<'a> StandaloneService<'a> {
             .offered_compensation_minor
             .map(|minor| format!("{minor} {} in minor units", conversation.currency));
         let body = match intent {
-            "interested" => Some(match &offer {
+            Intent::Interested => Some(match &offer {
                 Some(offer) => format!("Thanks for your interest. The current offer is {offer}. Reply ACCEPT to confirm, or send your requested rate and questions."),
                 None => "Thanks for your interest. No offer is recorded for this campaign yet; a campaign operator will send one in this thread. You can send your requested rate and questions here.".into(),
             }),
-            "pricing" => Some(match &offer {
+            Intent::Pricing => Some(match &offer {
                 Some(offer) => format!("Thanks. Our recorded offer is {offer}. Send the rate you can accept and any scope assumptions; an operator will review changes."),
                 None => "Thanks. No offer is recorded for this campaign yet. Send the rate you can accept and any scope assumptions; an operator will review them.".into(),
             }),
-            "question" => Some("Thanks for the question. We recorded it for the campaign operator. You can continue this thread; requirements and decisions remain attached to your portal record.".into()),
-            "accepted" => Some("Acceptance recorded. Your assignment is now available in this portal with the agreed compensation and approved brief.".into()),
-            "submitted" => Some("Delivery notice received. Upload or register the submission in the portal so it can enter QC and human review.".into()),
-            "opt_out" => None,
-            "declined" => None,
-            _ => Some("Thanks—we recorded your message. A campaign operator can review this thread and respond here.".into()),
+            Intent::Question => Some("Thanks for the question. We recorded it for the campaign operator. You can continue this thread; requirements and decisions remain attached to your portal record.".into()),
+            Intent::Accepted => Some("Acceptance recorded. Your assignment is now available in this portal with the agreed compensation and approved brief.".into()),
+            Intent::Submitted => Some("Delivery notice received. Upload or register the submission in the portal so it can enter QC and human review.".into()),
+            Intent::OptOut | Intent::Declined => None,
+            Intent::Other => Some("Thanks—we recorded your message. A campaign operator can review this thread and respond here.".into()),
         };
         body.map(|body| {
             self.add_conversation_message(
@@ -67,6 +66,7 @@ impl<'a> StandaloneService<'a> {
                 "local_portal",
                 body,
                 true,
+                None,
                 None,
             )
         })
@@ -80,12 +80,13 @@ impl<'a> StandaloneService<'a> {
         body: String,
         automated: bool,
         external_message_id: Option<String>,
+        intent: Option<Intent>,
     ) -> Result<ConversationMessage> {
         if body.trim().is_empty() {
             bail!("message body is required");
         }
         let mut conversation: Conversation = self.store.get("conversation", conversation_id)?;
-        let intent = (direction == "inbound").then(|| classify_intent(&body));
+        let intent = intent.map(|intent| intent.name().to_string());
         let message = ConversationMessage {
             id: Store::id(),
             conversation_id: conversation_id.into(),
@@ -215,8 +216,15 @@ impl<'a> StandaloneService<'a> {
         self.audit("ledger_transfer", &transfer.id, "posted", json!({"from": transfer.from_account, "to": transfer.to_account, "amount_minor": amount_minor, "currency": transfer.currency}))?;
         Ok(transfer)
     }
-    pub(crate) fn outreach_template(&self, creator: &Creator, campaign_id: Option<&str>) -> String {
-        match campaign_id.and_then(|id| self.store.get::<Campaign>("campaign", id).ok()) {
+    /// The invitation a conversation opens with: to `campaign` when the
+    /// conversation has one (read by the caller, whose read failure ends the
+    /// conversation's creation), otherwise to a collaboration.
+    pub(crate) fn outreach_template(
+        &self,
+        creator: &Creator,
+        campaign: Option<&Campaign>,
+    ) -> String {
+        match campaign {
             Some(campaign) => format!(
                 "Hi {}, we would like to invite you to the '{}' UGC campaign for {}. Reply INTERESTED to continue, ask any questions here, or reply STOP to opt out.",
                 creator.display_name, campaign.name, campaign.product

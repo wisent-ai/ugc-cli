@@ -56,14 +56,19 @@ impl<'a> StandaloneService<'a> {
             updated_at: now,
         };
         self.save_conversation(&conversation)?;
-        let body = initial_message
-            .unwrap_or_else(|| self.outreach_template(&creator, campaign_id.as_deref()));
+        // The operator's own opening message, or the invitation to the
+        // campaign already read above.
+        let body = match initial_message {
+            Some(message) => message,
+            None => self.outreach_template(&creator, campaign.as_ref()),
+        };
         let message = self.add_conversation_message(
             &conversation.id,
             "outbound",
             "local_portal",
             body,
             true,
+            None,
             None,
         )?;
         self.audit(
@@ -88,7 +93,7 @@ impl<'a> StandaloneService<'a> {
         ) {
             bail!("conversation is not open");
         }
-        let intent = classify_intent(&body);
+        let intent = judged_intent(&body)?;
         let inbound = self.add_conversation_message(
             conversation_id,
             "inbound",
@@ -96,54 +101,53 @@ impl<'a> StandaloneService<'a> {
             body,
             false,
             external_id,
+            Some(intent),
         )?;
         conversation.last_inbound_at = Some(inbound.created_at.clone());
         conversation.updated_at = Store::now();
-        conversation.next_action_at = if matches!(intent.as_str(), "pricing" | "question" | "other")
-        {
-            Some(Store::now())
-        } else {
-            None
+        conversation.next_action_at = match intent {
+            Intent::Pricing | Intent::Question | Intent::Other => Some(Store::now()),
+            _ => None,
         };
-        match intent.as_str() {
-            "opt_out" => {
+        match intent {
+            Intent::OptOut => {
                 conversation.status = "opted_out".into();
                 conversation.stage = "closed".into();
             }
-            "declined" => {
+            Intent::Declined => {
                 conversation.status = "declined".into();
                 conversation.stage = "closed".into();
             }
-            "interested" => {
+            Intent::Interested => {
                 conversation.status = "interested".into();
                 conversation.stage = "qualification".into();
             }
-            "accepted" => {
+            Intent::Accepted => {
                 conversation.status = "accepted".into();
                 conversation.stage = "contracting".into();
             }
-            "pricing" => {
+            Intent::Pricing => {
                 conversation.stage = "negotiation".into();
             }
-            "submitted" => {
+            Intent::Submitted => {
                 conversation.stage = "delivery".into();
             }
-            _ => {}
+            Intent::Question | Intent::Other => {}
         }
         self.save_conversation(&conversation)?;
-        let assignment = if intent == "accepted" {
+        let assignment = if intent == Intent::Accepted {
             let assignment = self.accept_conversation(conversation_id)?;
             conversation = self.store.get("conversation", conversation_id)?;
             Some(assignment)
         } else {
             None
         };
-        let automated_reply = self.automatic_reply(&conversation, &intent)?;
+        let automated_reply = self.automatic_reply(&conversation, intent)?;
         self.audit(
             "conversation",
             conversation_id,
             "inbound_received",
-            json!({"intent": intent, "automated_reply": automated_reply.is_some()}),
+            json!({"intent": intent.name(), "automated_reply": automated_reply.is_some()}),
         )?;
         Ok(
             json!({"conversation": conversation, "inbound": inbound, "automated_reply": automated_reply, "assignment": assignment}),
@@ -163,7 +167,15 @@ impl<'a> StandaloneService<'a> {
         ) {
             bail!("conversation is not open");
         }
-        self.add_conversation_message(conversation_id, "outbound", &channel, body, automated, None)
+        self.add_conversation_message(
+            conversation_id,
+            "outbound",
+            &channel,
+            body,
+            automated,
+            None,
+            None,
+        )
     }
     pub fn list_conversations(
         &self,

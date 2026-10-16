@@ -103,7 +103,68 @@ pub fn brama_analyze(
             {"role": "user", "content": user}
         ]
     });
-    let body = serde_json::to_vec(&payload)?;
+    brama_post(
+        base_url,
+        agent_id,
+        &secret,
+        "/v1/chat/completions",
+        &payload,
+        "Brama analysis request failed",
+    )
+}
+
+/// The alias Brama answers typed questions through; which model answers is
+/// Brama's route.
+const DECISION_ALIAS: &str = "decision-model";
+
+/// Brama's typed answers to `questions` about `state`, keyed as asked, from
+/// `POST /v1/decisions` signed as `agent_id`. An answer document without
+/// `answers`, or a question left unanswered, is refused with what Brama sent.
+pub fn brama_decide(
+    base_url: &str,
+    agent_id: &str,
+    signing_secret_source: &str,
+    state: &Value,
+    questions: &Value,
+) -> Result<serde_json::Map<String, Value>> {
+    required("Brama base URL", base_url)?;
+    required("Brama agent ID", agent_id)?;
+    let secret = secret::read(signing_secret_source)?;
+    let payload = json!({"model": DECISION_ALIAS, "state": state, "questions": questions});
+    let answer = brama_post(
+        base_url,
+        agent_id,
+        &secret,
+        "/v1/decisions",
+        &payload,
+        "Brama decision request failed",
+    )?;
+    let answers = match answer.get("answers") {
+        Some(Value::Object(answers)) => answers.clone(),
+        _ => bail!("Brama's decision carries no answers object: {answer}"),
+    };
+    if let Some(missing) = questions
+        .as_object()
+        .into_iter()
+        .flat_map(|asked| asked.keys())
+        .find(|key| !answers.contains_key(*key))
+    {
+        bail!("Brama's decision answered no `{missing}`: {answer}");
+    }
+    Ok(answers)
+}
+
+/// POST `payload` to Brama's `path`, signed as `agent_id` with `secret` over
+/// the body (`x-agent-signature` = HMAC-SHA256 of `agent:timestamp:sha256(body)`).
+fn brama_post(
+    base_url: &str,
+    agent_id: &str,
+    secret: &str,
+    path: &str,
+    payload: &Value,
+    failed: &str,
+) -> Result<Value> {
+    let body = serde_json::to_vec(payload)?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
         .as_secs()
@@ -113,7 +174,7 @@ pub fn brama_analyze(
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
     mac.update(signed.as_bytes());
     let signature = hex::encode(mac.finalize().into_bytes());
-    let endpoint = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+    let endpoint = format!("{}{path}", base_url.trim_end_matches('/'));
     let response = Client::new()
         .post(&endpoint)
         .header("content-type", "application/json")
@@ -122,31 +183,16 @@ pub fn brama_analyze(
         .header("x-agent-signature", signature)
         .body(body)
         .send()
-        .context("Brama analysis request failed")?;
+        .context(failed.to_string())?;
     json_response(response, "Brama")
 }
 
-fn system_prompt(kind: &str) -> &'static str {
-    match kind {
-        "brief" => {
-            "You are a senior UGC creative strategist. Review the brief for ambiguity, missing shots, unsafe claims, weak hooks, platform fit, and testability. Return concise JSON with strengths, risks, and concrete changes. Do not invent product facts."
-        }
-        "submission" | "asset" => {
-            "You are a UGC content reviewer. Evaluate only the supplied canonical metadata. Identify review risks, required human checks, and likely brief mismatches. Return concise JSON. Never claim to have watched media when no frames or transcript are supplied."
-        }
-        "rights" | "usage_rights" => {
-            "You are a usage-rights operations reviewer, not legal counsel. Identify missing fields, expiry and channel conflicts, paid-media restrictions, and questions requiring human or legal review. Return concise JSON."
-        }
-        "creator" => {
-            "You are a UGC creator-operations analyst. Evaluate fit using only supplied languages, markets, niches, identities, and metadata. Return concise JSON with fit signals, missing evidence, and risks."
-        }
-        "campaign" | "assignment" => {
-            "You are a UGC campaign operations analyst. Review execution readiness, dependencies, timing, ownership, and inconsistencies using only supplied data. Return concise JSON with blockers and next actions."
-        }
-        _ => {
-            "Review the supplied canonical UGC record using only available evidence. Return concise JSON with findings, risks, missing information, and next actions."
-        }
-    }
+/// The reviewer's instructions for a record of `kind`: the model reads the
+/// kind and judges what a review of such a record weighs.
+fn system_prompt(kind: &str) -> String {
+    format!(
+        "Review the supplied canonical UGC {kind} record as the operations reviewer a record of that kind needs, using only available evidence: do not invent product facts, never claim to have watched media when no frames or transcript are supplied, and name questions that need human or legal review rather than answering them as counsel. Return concise JSON with findings, risks, missing information and next actions."
+    )
 }
 
 fn json_response(response: Response, service: &str) -> Result<Value> {

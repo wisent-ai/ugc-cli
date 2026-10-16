@@ -56,6 +56,31 @@ The deliberately damaged records belong only to that run. This qualification
 covers persisted reads through the CLI, not provider delivery, webhook signature
 verification, graphical rendering or a public marketplace launch.
 
+## Conversations
+
+`ugc-cli standalone conversation-create` opens with the operator's
+`--message`, or with an invitation to the campaign the conversation
+names, read once when the conversation is created: a campaign that cannot be
+read refuses the creation with the store's cause instead of sending a
+collaboration invitation that names no campaign.
+
+An inbound creator message (`ugc-cli standalone conversation-receive` and the
+portal's message endpoint) is judged by Brama as one typed choice on
+`POST /v1/decisions`, alias `decision-model`, among `opt_out`, `declined`,
+`accepted`, `interested`, `pricing`, `submitted`, `question` and `other`, in
+any language. The chosen intent moves the conversation, chooses the automatic
+reply and is stored on the inbound message. The call is signed as `ugc-cli
+analysis analyze` signs: `BRAMA_URL`, `UGC_BRAMA_AGENT_ID` and
+`UGC_BRAMA_SIGNING_SECRET_SOURCE` must be set; an unset one refuses the
+message with `<NAME> is not set: an inbound creator message's intent is
+judged by Brama, …` before anything is stored. A Brama refusal, an answer
+without the question or a choice outside the asked intents refuses the
+message with what Brama sent; nothing is guessed from words in the message.
+
+`ugc-cli analysis analyze --kind KIND --id ID` reviews the record with one
+reviewer instruction that names the record's kind; the model weighs what a
+review of that kind needs.
+
 ## Operator approval and verification
 
 The authenticated operator screen's **Approve brief** control calls
