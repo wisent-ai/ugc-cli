@@ -43,3 +43,7 @@ path = "tests/onboarding/unreadable_campaign.rs"
 [[test]]
 name = "option_spellings"
 path = "tests/cli/spellings.rs"
+
+[[test]]
+name = "portal_validity"
+path = "tests/portal/access.rs"

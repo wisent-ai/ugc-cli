@@ -111,6 +111,16 @@ with `--token-source` and `--webhook-secret-source` only; `--token-env` and
 arguments. `cargo test --test option_spellings` runs both refused spellings
 on a SQLite fleet database it creates and checks no connection was stored.
 
+## Creator portal access
+
+`ugc-cli standalone portal-create --creator ID` issues an access that never
+expires; `--days N` makes it expire N days after it is created, and a value
+that is not positive is refused with `portal validity days must be positive`
+before anything is stored. No validity is assumed for the operator.
+`cargo test --test portal_validity` creates both kinds on a SQLite fleet
+database it creates and checks the refusal leaves the creator's accesses
+unchanged.
+
 ## Onboarding
 
 When the campaign the ledger stamped as its first success can no longer be
