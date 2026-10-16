@@ -89,6 +89,17 @@ has no operator, so it is always judged by Brama.
 reviewer instruction that names the record's kind; the model weighs what a
 review of that kind needs.
 
+`cargo test --test conversations` runs the built CLI on a SQLite fleet
+database it creates under `target/real-tests/`, named by
+`UGC_CLI_DATABASE_URL`, with every Brama setting removed. One journey opens a
+conversation on a campaign and reads back an invitation naming the campaign
+and its product, and a conversation on a campaign that does not exist is
+refused with `campaign not found` and stores nothing. The other records an
+operator-stated intent and reads the conversation's status, stage and messages
+back, then checks the refusals of an unknown intent, a reply Brama would judge
+and a ledger movement without a key. Each run writes `report.json` with the
+source revision, the binary digest and every command's exit and output.
+
 ## Ledger
 
 `ugc-cli standalone ledger-fund`, `ledger-release`, `ledger-settle` and

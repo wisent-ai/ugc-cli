@@ -181,10 +181,85 @@ fn create_database(root: &Path) -> Result<String> {
     Ok(format!("sqlite://{}", fs::canonicalize(&file)?.display()))
 }
 
-#[test]
-fn an_operator_stated_intent_needs_no_brama() -> Result<()> {
+/// An invitation names the campaign create_conversation read, and a campaign
+/// that cannot be read refuses the conversation instead of a generic invitation.
+fn campaign_invitation(journey: &mut Journey) -> Result<()> {
+    let creator = journey.accepted(&["creator", "add", "--name", "Invited Creator"])?;
+    let creator = text(&creator, "/id")?.to_string();
+    let campaign = journey.accepted(&[
+        "campaign",
+        "create",
+        "--name",
+        "Autumn Launch",
+        "--brand",
+        "Example Brand",
+        "--product",
+        "Example Kettle",
+        "--currency",
+        "USD",
+    ])?;
+    let campaign = text(&campaign, "/id")?.to_string();
+    let opened = journey.accepted(&[
+        "standalone",
+        "conversation-create",
+        "--creator",
+        &creator,
+        "--campaign",
+        &campaign,
+        "--currency",
+        "USD",
+    ])?;
+    let invitation = text(&opened, "/message/body")?;
+    ensure!(
+        invitation.contains("'Autumn Launch'") && invitation.contains("Example Kettle"),
+        "the invitation does not name the campaign it was read from: {invitation}"
+    );
+    let conversation = text(&opened, "/conversation/id")?.to_string();
+    let stored = journey.accepted(&["standalone", "conversation-messages", &conversation])?;
+    ensure!(
+        stored
+            .as_array()
+            .is_some_and(|messages| messages.iter().any(|message| message["body"] == invitation)),
+        "the stored conversation does not hold the invitation: {stored}"
+    );
+
+    let listed = |journey: &mut Journey| -> Result<usize> {
+        let conversations =
+            journey.accepted(&["standalone", "conversation-list", "--creator", &creator])?;
+        conversations
+            .as_array()
+            .map(Vec::len)
+            .context("conversation-list printed no list")
+    };
+    let before = listed(journey)?;
+    journey.refused(
+        &[
+            "standalone",
+            "conversation-create",
+            "--creator",
+            &creator,
+            "--campaign",
+            "no-such-campaign",
+            "--currency",
+            "USD",
+        ],
+        "campaign not found: no-such-campaign",
+    )?;
+    let after = listed(journey)?;
+    ensure!(
+        after == before,
+        "a refused conversation was stored: {before} then {after}"
+    );
+    Ok(())
+}
+
+/// Run `steps` on a fresh SQLite fleet database under
+/// target/real-tests/`name` and keep every command in its report.
+fn journey(name: &str, steps: fn(&mut Journey) -> Result<()>) -> Result<()> {
     let revision = Command::new("git").args(["rev-parse", "HEAD"]).output()?;
-    let root = PathBuf::from("target/real-tests/stated-intent").join(Uuid::new_v4().to_string());
+    let root = PathBuf::from("target/real-tests")
+        .join(name)
+        .join(Uuid::new_v4().to_string());
     fs::create_dir_all(root.join("assets"))?;
     let root = fs::canonicalize(root)?;
     let binary = fs::canonicalize(env!("CARGO_BIN_EXE_ugc-cli"))?;
@@ -194,7 +269,7 @@ fn an_operator_stated_intent_needs_no_brama() -> Result<()> {
         root: root.clone(),
         commands: Vec::new(),
     };
-    let result = stated_intent(&mut journey);
+    let result = steps(&mut journey);
     fs::write(
         root.join("report.json"),
         serde_json::to_vec_pretty(&json!({
@@ -207,4 +282,14 @@ fn an_operator_stated_intent_needs_no_brama() -> Result<()> {
         }))?,
     )?;
     result
+}
+
+#[test]
+fn an_operator_stated_intent_needs_no_brama() -> Result<()> {
+    journey("stated-intent", stated_intent)
+}
+
+#[test]
+fn an_invitation_names_the_campaign_it_was_read_from() -> Result<()> {
+    journey("campaign-invitation", campaign_invitation)
 }
