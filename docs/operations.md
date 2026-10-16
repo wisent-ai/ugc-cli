@@ -77,9 +77,24 @@ judged by Brama, …` before anything is stored. A Brama refusal, an answer
 without the question or a choice outside the asked intents refuses the
 message with what Brama sent; nothing is guessed from words in the message.
 
+Without Brama, the operator states the intent:
+`ugc-cli standalone conversation-receive ID --body TEXT --channel CHANNEL
+--intent INTENT` records the message with that intent and moves the
+conversation exactly as Brama's choice would; Brama is not asked and none of
+its settings is read. An intent outside the eight names above is refused with
+every name listed, before anything is stored. The portal's message endpoint
+has no operator, so it is always judged by Brama.
+
 `ugc-cli analysis analyze --kind KIND --id ID` reviews the record with one
 reviewer instruction that names the record's kind; the model weighs what a
 review of that kind needs.
+
+## Ledger
+
+`ugc-cli standalone ledger-fund`, `ledger-release`, `ledger-settle` and
+`ledger-reverse` each require `--idempotency-key KEY`: the caller names the
+movement, and repeating a command with the same key records it once. A
+missing key is refused by the argument parser; none is generated.
 
 ## Operator approval and verification
 

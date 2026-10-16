@@ -31,3 +31,7 @@ path = "tests/storage/json.rs"
 [[test]]
 name = "operator_approvals"
 path = "tests/lifecycle/approvals.rs"
+
+[[test]]
+name = "stated_intent"
+path = "tests/conversations/stated_intent.rs"

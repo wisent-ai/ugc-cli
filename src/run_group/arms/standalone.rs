@@ -101,12 +101,19 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
             status.as_deref(),
         )?)?,
         StandaloneCommand::ConversationMessages { id } => output(&standalone.messages(&id)?)?,
-        StandaloneCommand::ConversationReceive {
+        StandaloneCommand::ConversationReceive(ReceiveArgs {
             id,
             body,
             channel,
             external_id,
-        } => output(&standalone.receive_message(&id, body, channel, external_id)?)?,
+            intent,
+        }) => output(&standalone.receive_message(
+            &id,
+            body,
+            channel,
+            external_id,
+            intent.as_deref(),
+        )?)?,
         StandaloneCommand::ConversationSend {
             id,
             body,
@@ -132,32 +139,22 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
             &assignment,
             amount_minor,
             currency,
-            idempotency_key.unwrap_or_else(Store::id),
+            idempotency_key,
         )?)?,
         StandaloneCommand::LedgerRelease {
             payment,
             idempotency_key,
-        } => output(
-            &standalone.release_payment(&payment, idempotency_key.unwrap_or_else(Store::id))?,
-        )?,
+        } => output(&standalone.release_payment(&payment, idempotency_key)?)?,
         StandaloneCommand::LedgerSettle {
             payment,
             reference,
             idempotency_key,
-        } => output(&standalone.settle_offline(
-            &payment,
-            reference,
-            idempotency_key.unwrap_or_else(Store::id),
-        )?)?,
+        } => output(&standalone.settle_offline(&payment, reference, idempotency_key)?)?,
         StandaloneCommand::LedgerReverse {
             id,
             reason,
             idempotency_key,
-        } => output(&standalone.reverse_transfer(
-            &id,
-            reason,
-            idempotency_key.unwrap_or_else(Store::id),
-        )?)?,
+        } => output(&standalone.reverse_transfer(&id, reason, idempotency_key)?)?,
         StandaloneCommand::LedgerBalance { account, currency } => {
             output(&standalone.balance(&account, &currency)?)?
         }

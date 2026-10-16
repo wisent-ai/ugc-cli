@@ -85,6 +85,7 @@ impl<'a> StandaloneService<'a> {
         body: String,
         channel: String,
         external_id: Option<String>,
+        stated: Option<&str>,
     ) -> Result<Value> {
         let mut conversation: Conversation = self.store.get("conversation", conversation_id)?;
         if matches!(
@@ -93,7 +94,7 @@ impl<'a> StandaloneService<'a> {
         ) {
             bail!("conversation is not open");
         }
-        let intent = judged_intent(&body)?;
+        let intent = Intent::of(stated, &body)?;
         let inbound = self.add_conversation_message(
             conversation_id,
             "inbound",

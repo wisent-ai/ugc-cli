@@ -67,10 +67,42 @@ impl Intent {
         }
     }
 
+    /// The intent named `name`, if it is one of [`INTENTS`].
+    fn find(name: &str) -> Option<Intent> {
+        INTENTS
+            .iter()
+            .find(|(intent, _)| intent.name() == name)
+            .map(|(intent, _)| *intent)
+    }
+
     fn named(name: &str) -> Result<Intent> {
-        match INTENTS.iter().find(|(intent, _)| intent.name() == name) {
-            Some((intent, _)) => Ok(*intent),
+        match Intent::find(name) {
+            Some(intent) => Ok(intent),
             None => bail!("Brama chose the intent `{name}`, which is not one of the intents asked"),
+        }
+    }
+
+    /// The intent the operator states by `name`, refused with every
+    /// intent's name when it is none of them.
+    fn stated(name: &str) -> Result<Intent> {
+        match Intent::find(name) {
+            Some(intent) => Ok(intent),
+            None => {
+                let names: Vec<&str> = INTENTS.iter().map(|(intent, _)| intent.name()).collect();
+                bail!(
+                    "`{name}` is not an intent; state one of {}",
+                    names.join(", ")
+                )
+            }
+        }
+    }
+
+    /// The intent of the inbound message `body`: the one the operator
+    /// `stated`, or Brama's judgement when the operator stated none.
+    pub(crate) fn of(stated: Option<&str>, body: &str) -> Result<Intent> {
+        match stated {
+            Some(name) => Intent::stated(name),
+            None => judged_intent(body),
         }
     }
 }
@@ -80,7 +112,7 @@ fn setting(name: &str) -> Result<String> {
     match std::env::var(name) {
         Ok(value) if !value.trim().is_empty() => Ok(value),
         Ok(_) | Err(std::env::VarError::NotPresent) => bail!(
-            "{name} is not set: an inbound creator message's intent is judged by Brama, which ugc reaches through {BRAMA_URL}, {AGENT_ID} and {SIGNING_SECRET_SOURCE}"
+            "{name} is not set: an inbound creator message's intent is judged by Brama, which ugc reaches through {BRAMA_URL}, {AGENT_ID} and {SIGNING_SECRET_SOURCE}, unless the operator states it with conversation-receive --intent"
         ),
         Err(error) => bail!("{name} cannot be read: {error}"),
     }

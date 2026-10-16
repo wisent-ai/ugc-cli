@@ -102,18 +102,7 @@ pub(crate) enum StandaloneCommand {
     ConversationMessages {
         id: String,
     },
-    ConversationReceive {
-        id: String,
-        #[arg(long)]
-        body: String,
-        #[arg(
-            long,
-            help = "The channel the message arrived on, for example local_portal"
-        )]
-        channel: String,
-        #[arg(long)]
-        external_id: Option<String>,
-    },
+    ConversationReceive(ReceiveArgs),
     ConversationSend {
         id: String,
         #[arg(long)]
@@ -151,13 +140,13 @@ pub(crate) enum StandaloneCommand {
         #[arg(long, help = "Three-letter currency code the amount is in")]
         currency: String,
         #[arg(long)]
-        idempotency_key: Option<String>,
+        idempotency_key: String,
     },
     LedgerRelease {
         #[arg(long)]
         payment: String,
         #[arg(long)]
-        idempotency_key: Option<String>,
+        idempotency_key: String,
     },
     LedgerSettle {
         #[arg(long)]
@@ -165,14 +154,14 @@ pub(crate) enum StandaloneCommand {
         #[arg(long)]
         reference: String,
         #[arg(long)]
-        idempotency_key: Option<String>,
+        idempotency_key: String,
     },
     LedgerReverse {
         id: String,
         #[arg(long)]
         reason: String,
         #[arg(long)]
-        idempotency_key: Option<String>,
+        idempotency_key: String,
     },
     LedgerBalance {
         #[arg(long)]
