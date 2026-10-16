@@ -50,6 +50,41 @@ fn stated_intent(journey: &mut Journey) -> Result<()> {
         after > before,
         "the stated message was not stored: {before} then {after}"
     );
+    let reply = text(&received, "/automated_reply/body")?;
+    ensure!(
+        reply.contains("No offer is recorded for this campaign yet"),
+        "the reply to a conversation with no offer states one: {reply}"
+    );
+
+    let offered = journey.accepted(&[
+        "standalone",
+        "conversation-create",
+        "--creator",
+        &creator,
+        "--currency",
+        "USD",
+        "--offer-minor",
+        "25000",
+        "--message",
+        "Would you make a second video for us?",
+    ])?;
+    let offered = text(&offered, "/conversation/id")?.to_string();
+    let priced = journey.accepted(&[
+        "standalone",
+        "conversation-receive",
+        &offered,
+        "--body",
+        "What does it pay?",
+        "--channel",
+        "email",
+        "--intent",
+        "pricing",
+    ])?;
+    let reply = text(&priced, "/automated_reply/body")?;
+    ensure!(
+        reply.contains("Our recorded offer is 25000 USD in minor units"),
+        "the reply does not state the recorded offer: {reply}"
+    );
 
     journey.refused(
         &[

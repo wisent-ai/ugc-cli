@@ -96,9 +96,12 @@ conversation on a campaign and reads back an invitation naming the campaign
 and its product, and a conversation on a campaign that does not exist is
 refused with `campaign not found` and stores nothing. The other records an
 operator-stated intent and reads the conversation's status, stage and messages
-back, then checks the refusals of an unknown intent, a reply Brama would judge
-and a ledger movement without a key. Each run writes `report.json` with the
-source revision, the binary digest and every command's exit and output.
+back; it checks that the automatic reply says no offer is recorded on a
+conversation without one and states the recorded offer on one with
+`--offer-minor`, then checks the refusals of an unknown intent, a reply Brama
+would judge and a ledger movement without a key. Each run writes
+`report.json` with the source revision, the binary digest and every command's
+exit and output.
 
 ## Onboarding
 
