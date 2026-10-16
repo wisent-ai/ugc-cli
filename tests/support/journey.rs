@@ -27,7 +27,9 @@ pub struct Journey {
 }
 
 impl Journey {
-    pub fn run(&mut self, args: &[&str]) -> Result<Output> {
+    /// The binary with the journey's database, home, actor and asset
+    /// directory, and no Brama setting.
+    pub fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(&self.binary);
         command
             .args(["--actor", "ugc-cli-journey", "--asset-dir"])
@@ -39,7 +41,11 @@ impl Journey {
         for setting in BRAMA_SETTINGS {
             command.env_remove(setting);
         }
-        let output = command.output()?;
+        command
+    }
+
+    pub fn run(&mut self, args: &[&str]) -> Result<Output> {
+        let output = self.command(args).output()?;
         self.commands.push(json!({
             "args": args,
             "status": output.status.code(),

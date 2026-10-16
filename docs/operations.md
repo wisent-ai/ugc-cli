@@ -185,3 +185,23 @@ identity, the declaration evidence, requests, CLI results and cleanup failures.
 The token is read from its file, not recorded in the report. A separate Weles
 journey must observe the graphical controls on a dedicated host; HTTP readback
 does not prove rendering or external creator verification.
+
+## Operator screen writes
+
+`ugc-cli standalone serve --bind HOST:PORT` requires the request limits it
+enforces: `--max-header-line-bytes`, `--max-header-count` and
+`--max-body-bytes`; zero is refused and none is assumed. A non-loopback bind
+also requires `--operator-token-source` (`env:NAME` or `file:PATH`), whose
+value every operator `/api/` request, read or write, must then carry as
+`Authorization: Bearer TOKEN`; the creator portal's `/api/portal/` routes and
+self-registration's `/api/register` do not use it.
+
+`tests/operator/screen.rs` (`cargo test --test operator_screen`) starts the
+actual server on a free loopback port with its own SQLite fleet database and
+token, takes the three limits from `UGC_JOURNEY_MAX_HEADER_LINE_BYTES`,
+`UGC_JOURNEY_MAX_HEADER_COUNT` and `UGC_JOURNEY_MAX_BODY_BYTES` (refused by
+name when unset), and checks through CLI reads that a write without the token
+stores nothing, that a campaign is created, renamed and cancelled, an empty
+edit is refused, a brief is created, approved and archived, and a creator is
+created, edited and removed. Its report under `target/real-tests/operator-screen/`
+keeps every CLI command and HTTP request with its status and answer.
