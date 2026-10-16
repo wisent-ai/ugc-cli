@@ -100,6 +100,16 @@ back, then checks the refusals of an unknown intent, a reply Brama would judge
 and a ledger movement without a key. Each run writes `report.json` with the
 source revision, the binary digest and every command's exit and output.
 
+## Onboarding
+
+When the campaign the ledger stamped as its first success can no longer be
+read back, `ugc-cli onboarding` stops at `awaiting_campaign` and its note says
+which campaign and why, for example `The recorded campaign <id> can no longer
+be read out of this ledger: campaign not found: <id>`.
+`cargo test --test onboarding_campaign` runs that walk on a SQLite fleet
+database it creates under `target/real-tests/`, after removing the stamped
+campaign's record, and checks the status and the note.
+
 ## Ledger
 
 `ugc-cli standalone ledger-fund`, `ledger-release`, `ledger-settle` and
