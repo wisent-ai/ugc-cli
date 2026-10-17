@@ -1,7 +1,6 @@
 use super::*;
 
-pub(crate) const HEX_RADIX: u32 = 16;
-
+/// The request limits `serve` enforces; the CLI's argument types refuse zero.
 #[derive(Clone, Copy)]
 pub struct ServerLimits {
     pub header_line_bytes: usize,
@@ -25,33 +24,29 @@ pub fn serve(
     if !address.ip().is_loopback() && operator_token.is_none() {
         bail!("non-loopback standalone server requires --operator-token-source");
     }
-    if limits.header_line_bytes == 0 || limits.header_count == 0 || limits.body_bytes == 0 {
-        bail!("standalone server limits must be positive");
-    }
     let listener = TcpListener::bind(address)
         .with_context(|| format!("cannot bind standalone server to {bind}"))?;
     eprintln!("standalone UGC server ready on http://{bind}");
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                let response = (|| -> Result<Response> {
-                    handle(
-                        store,
-                        asset_dir,
-                        actor,
-                        operator_token.as_deref(),
-                        allow_registration,
-                        portal_days,
-                        limits,
-                        &mut stream,
-                    )
-                })()
-                .unwrap_or_else(|error| {
-                    Response::json(
+                // A refused request is answered with its cause.
+                let response = match handle(
+                    store,
+                    asset_dir,
+                    actor,
+                    operator_token.as_deref(),
+                    allow_registration,
+                    portal_days,
+                    limits,
+                    &mut stream,
+                ) {
+                    Ok(response) => response,
+                    Err(error) => Response::json(
                         "HTTP/1.1 400 Bad Request",
-                        json!({"error": error.to_string()}),
-                    )
-                });
+                        json!({"error": format!("{error:#}")}),
+                    ),
+                };
                 if let Err(error) = write_response(&mut stream, response) {
                     eprintln!("standalone response failed: {error}");
                 }
@@ -81,8 +76,7 @@ impl Response {
         Self {
             status,
             content_type: "application/json; charset=utf-8",
-            body: serde_json::to_vec_pretty(&value)
-                .unwrap_or_else(|_| b"{\"error\":\"serialization failed\"}".to_vec()),
+            body: format!("{value:#}").into_bytes(),
         }
     }
 
@@ -180,13 +174,6 @@ pub(crate) fn operator_api(store: &Store, actor: &str, request: &Request) -> Res
         )),
         ("POST", "/api/conversations") => {
             let input: NewConversation = request.json()?;
-            let currency = match (input.currency, input.campaign_id.as_deref()) {
-                (Some(currency), _) => currency,
-                (None, Some(campaign_id)) => {
-                    store.get::<Campaign>("campaign", campaign_id)?.currency
-                }
-                (None, None) => "USD".into(),
-            };
             Ok(Response::json(
                 "HTTP/1.1 201 Created",
                 standalone.create_conversation(
@@ -194,7 +181,7 @@ pub(crate) fn operator_api(store: &Store, actor: &str, request: &Request) -> Res
                     input.campaign_id,
                     input.brief_id,
                     input.offered_compensation_minor,
-                    currency,
+                    input.currency,
                     input.shipping_required,
                     input.initial_message,
                 )?,
@@ -219,7 +206,7 @@ pub(crate) fn operator_api(store: &Store, actor: &str, request: &Request) -> Res
                         serde_json::to_value(standalone.send_message(
                             id,
                             input.body,
-                            input.channel.unwrap_or_else(|| "local_portal".into()),
+                            input.channel,
                             false,
                         )?)?,
                     ));

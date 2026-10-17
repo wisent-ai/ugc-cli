@@ -265,12 +265,12 @@ pub(crate) enum StandaloneCommand {
         allow_registration: bool,
         #[arg(long)]
         portal_days: Option<i64>,
-        #[arg(long)]
-        max_header_line_bytes: usize,
-        #[arg(long)]
-        max_header_count: usize,
-        #[arg(long)]
-        max_body_bytes: usize,
+        #[arg(long, help = "Longest request or header line accepted, in bytes")]
+        max_header_line_bytes: std::num::NonZeroUsize,
+        #[arg(long, help = "Most request headers accepted")]
+        max_header_count: std::num::NonZeroUsize,
+        #[arg(long, help = "Largest request body accepted, in bytes")]
+        max_body_bytes: std::num::NonZeroUsize,
     },
     Export {
         file: PathBuf,

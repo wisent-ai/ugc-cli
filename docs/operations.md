@@ -75,6 +75,14 @@ names, read once when the conversation is created: a campaign that cannot be
 read refuses the creation with the store's cause instead of sending a
 collaboration invitation that names no campaign.
 
+The operator server's `POST /api/conversations` takes the same fields as
+`conversation-create`: `creator_id`, optional `campaign_id`, `brief_id`,
+`offered_compensation_minor`, `initial_message` and `shipping_required`, and a
+required `currency`. `POST /api/conversations/{id}/messages` takes `body` and a
+required `channel`, as `conversation-send --channel` does. A request without
+either is refused as invalid JSON naming the missing field; no currency or
+channel is assumed.
+
 An inbound creator message (`ugc-cli standalone conversation-receive` and the
 portal's message endpoint) is judged by Brama as one typed choice on
 `POST /v1/decisions`, alias `decision-model`, among `opt_out`, `declined`,
@@ -190,7 +198,7 @@ does not prove rendering or external creator verification.
 
 `ugc-cli standalone serve --bind HOST:PORT` requires the request limits it
 enforces: `--max-header-line-bytes`, `--max-header-count` and
-`--max-body-bytes`; zero is refused and none is assumed. A non-loopback bind
+`--max-body-bytes`; zero is refused by the argument parser and none is assumed. A non-loopback bind
 also requires `--operator-token-source` (`env:NAME` or `file:PATH`), whose
 value every operator `/api/` request, read or write, must then carry as
 `Authorization: Bearer TOKEN`; the creator portal's `/api/portal/` routes and

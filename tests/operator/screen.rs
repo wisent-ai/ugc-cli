@@ -1,157 +1,23 @@
 //! The operator screen's writes: `standalone serve` on the journey's own
 //! database creates, edits, approves, archives, cancels and removes through
 //! its HTTP routes, and the CLI reads back exactly what each route wrote.
-//! Without the operator token a write is refused and nothing is stored.
-//!
-//! The server's request limits are the caller's: `UGC_JOURNEY_MAX_HEADER_LINE_BYTES`,
-//! `UGC_JOURNEY_MAX_HEADER_COUNT` and `UGC_JOURNEY_MAX_BODY_BYTES`.
+//! Without the operator token a write is refused and nothing is stored; a
+//! conversation without its currency or a message without its channel is
+//! refused naming the missing field.
 
+#[path = "../support/operator_server.rs"]
+mod operator_server;
 #[path = "../support/journey.rs"]
 mod support;
 
-use anyhow::{Context, Result, bail, ensure};
-use reqwest::{Method, blocking::Client};
-use serde_json::{Value, json};
-use std::{
-    env,
-    io::{BufRead, BufReader},
-    net::{Ipv4Addr, TcpListener},
-    process::{Child, Stdio},
-};
+use anyhow::{Context, Result, ensure};
+use operator_server::{Server, serve};
+use reqwest::Method;
+use serde_json::json;
 use support::{Journey, journey, text};
 use uuid::Uuid;
 
-/// The token source the server reads, set only in the server's environment.
-const TOKEN_VARIABLE: &str = "UGC_JOURNEY_OPERATOR_TOKEN";
-
-struct Server {
-    child: Child,
-    origin: String,
-    token: String,
-    http: Client,
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        if let Err(error) = self.child.kill() {
-            eprintln!("the operator server could not be stopped: {error}");
-        }
-    }
-}
-
-fn stated(variable: &str) -> Result<String> {
-    env::var(variable).with_context(|| {
-        format!("{variable} must state the operator server's limit for this journey")
-    })
-}
-
-/// Start the screen on a free loopback port and return once it says it is
-/// ready.
-fn serve(journey: &Journey) -> Result<Server> {
-    let header_line = stated("UGC_JOURNEY_MAX_HEADER_LINE_BYTES")?;
-    let header_count = stated("UGC_JOURNEY_MAX_HEADER_COUNT")?;
-    let body = stated("UGC_JOURNEY_MAX_BODY_BYTES")?;
-    // Port 0 asks the system for a free port, which the server then binds.
-    let free = TcpListener::bind(format!("{}:0", Ipv4Addr::LOCALHOST))?.local_addr()?;
-    let bind = free.to_string();
-    let token = Uuid::new_v4().to_string();
-    let mut child = journey
-        .command(&[
-            "standalone",
-            "serve",
-            "--bind",
-            &bind,
-            "--operator-token-source",
-            &format!("env:{TOKEN_VARIABLE}"),
-            "--max-header-line-bytes",
-            &header_line,
-            "--max-header-count",
-            &header_count,
-            "--max-body-bytes",
-            &body,
-        ])
-        .env(TOKEN_VARIABLE, &token)
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let stderr = child.stderr.take().context("the server has no stderr")?;
-    let mut said = Vec::new();
-    for line in BufReader::new(stderr).lines() {
-        let line = line?;
-        let ready = line.contains("standalone UGC server ready on");
-        said.push(line);
-        if ready {
-            return Ok(Server {
-                child,
-                origin: format!("http://{bind}"),
-                token,
-                http: Client::new(),
-            });
-        }
-    }
-    bail!("the operator server stopped before it was ready: {said:?}")
-}
-
-impl Server {
-    fn call(
-        &self,
-        journey: &mut Journey,
-        method: Method,
-        path: &str,
-        body: &Value,
-        token: &str,
-    ) -> Result<(bool, Value)> {
-        let response = self
-            .http
-            .request(method.clone(), format!("{}{path}", self.origin))
-            .bearer_auth(token)
-            .json(body)
-            .send()?;
-        let status = response.status();
-        let answer: Value = serde_json::from_str(&response.text()?)?;
-        journey.commands.push(json!({
-            "http": format!("{method} {path}"),
-            "body": body,
-            "status": status.as_u16(),
-            "response": answer,
-        }));
-        Ok((status.is_success(), answer))
-    }
-
-    fn accepted(
-        &self,
-        journey: &mut Journey,
-        method: Method,
-        path: &str,
-        body: Value,
-    ) -> Result<Value> {
-        let (success, answer) = self.call(journey, method.clone(), path, &body, &self.token)?;
-        ensure!(success, "{method} {path} was refused: {answer}");
-        Ok(answer)
-    }
-
-    fn refused(
-        &self,
-        journey: &mut Journey,
-        method: Method,
-        path: &str,
-        body: Value,
-        token: &str,
-        cause: &str,
-    ) -> Result<()> {
-        let (success, answer) = self.call(journey, method.clone(), path, &body, token)?;
-        ensure!(!success, "{method} {path} was accepted: {answer}");
-        ensure!(
-            answer["error"]
-                .as_str()
-                .is_some_and(|error| error.contains(cause)),
-            "{method} {path} was refused without naming `{cause}`: {answer}"
-        );
-        Ok(())
-    }
-}
-
-fn operator_screen(journey: &mut Journey) -> Result<()> {
-    let server = serve(journey)?;
+fn campaign_and_brief(server: &Server, journey: &mut Journey) -> Result<()> {
     let campaign_input = json!({
         "name": "Screen Campaign",
         "brand": "Example Brand",
@@ -237,6 +103,24 @@ fn operator_screen(journey: &mut Journey) -> Result<()> {
         "the CLI does not read the archived brief"
     );
 
+    let cancelled = server.accepted(
+        journey,
+        Method::POST,
+        &format!("{path}/status"),
+        json!({"status": "cancelled"}),
+    )?;
+    ensure!(
+        text(&cancelled, "/status")? == "cancelled",
+        "the campaign was not cancelled: {cancelled}"
+    );
+    ensure!(
+        journey.accepted(&["campaign", "show", &campaign_id])? == cancelled,
+        "the CLI does not read the cancellation"
+    );
+    Ok(())
+}
+
+fn creator(server: &Server, journey: &mut Journey) -> Result<()> {
     let creator = server.accepted(
         journey,
         Method::POST,
@@ -263,23 +147,63 @@ fn operator_screen(journey: &mut Journey) -> Result<()> {
     journey.refused(
         &["creator", "show", &creator_id],
         &format!("creator not found: {creator_id}"),
-    )?;
+    )
+}
 
-    let cancelled = server.accepted(
+fn conversation(server: &Server, journey: &mut Journey) -> Result<()> {
+    let talker = journey.accepted(&["creator", "add", "--name", "Screen Talker"])?;
+    let talker_id = text(&talker, "/id")?.to_string();
+    let opening = json!({"creator_id": talker_id, "initial_message": "Would you film a lamp?"});
+    server.refused(
         journey,
         Method::POST,
-        &format!("{path}/status"),
-        json!({"status": "cancelled"}),
+        "/api/conversations",
+        opening.clone(),
+        &server.token,
+        "missing field `currency`",
     )?;
+    let mut stated = opening;
+    stated["currency"] = json!("EUR");
+    let opened = server.accepted(journey, Method::POST, "/api/conversations", stated)?;
+    let conversation_id = text(&opened, "/conversation/id")?.to_string();
     ensure!(
-        text(&cancelled, "/status")? == "cancelled",
-        "the campaign was not cancelled: {cancelled}"
+        text(&opened, "/conversation/currency")? == "EUR",
+        "the stated currency was not kept: {opened}"
     );
+    let messages = format!("/api/conversations/{conversation_id}/messages");
+    server.refused(
+        journey,
+        Method::POST,
+        &messages,
+        json!({"body": "Here is the brief"}),
+        &server.token,
+        "missing field `channel`",
+    )?;
+    server.accepted(
+        journey,
+        Method::POST,
+        &messages,
+        json!({"body": "Here is the brief", "channel": "email"}),
+    )?;
+    let read = journey.accepted(&["standalone", "conversation-messages", &conversation_id])?;
+    let sent = read
+        .as_array()
+        .context("conversation-messages printed no array")?
+        .iter()
+        .find(|message| message["body"] == "Here is the brief")
+        .with_context(|| format!("the CLI does not read the sent message: {read}"))?;
     ensure!(
-        journey.accepted(&["campaign", "show", &campaign_id])? == cancelled,
-        "the CLI does not read the cancellation"
+        sent["channel"] == "email",
+        "the stated channel was not kept: {sent}"
     );
     Ok(())
+}
+
+fn operator_screen(journey: &mut Journey) -> Result<()> {
+    let server = serve(journey)?;
+    campaign_and_brief(&server, journey)?;
+    creator(&server, journey)?;
+    conversation(&server, journey)
 }
 
 #[test]

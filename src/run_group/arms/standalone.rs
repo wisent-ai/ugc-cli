@@ -263,9 +263,9 @@ pub(crate) fn run_standalone(command: StandaloneCommand, scope: RunScope<'_>) ->
                 allow_registration,
                 portal_days,
                 standalone_server::ServerLimits {
-                    header_line_bytes: max_header_line_bytes,
-                    header_count: max_header_count,
-                    body_bytes: max_body_bytes,
+                    header_line_bytes: max_header_line_bytes.get(),
+                    header_count: max_header_count.get(),
+                    body_bytes: max_body_bytes.get(),
                 },
             )?;
         }

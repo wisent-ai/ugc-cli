@@ -9,7 +9,11 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: ServerLimits) -> Resu
         .context("request method is missing")?
         .to_string();
     let target = parts.next().context("request target is missing")?;
-    let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
+    // A target without `?` carries no query.
+    let (raw_path, raw_query) = match target.split_once('?') {
+        Some(parts) => parts,
+        None => (target, ""),
+    };
     let path = percent_decode(raw_path)?;
     let query = parse_query(raw_query)?;
     let mut headers = BTreeMap::new();
@@ -35,16 +39,27 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: ServerLimits) -> Resu
     if headers.contains_key("transfer-encoding") {
         bail!("Transfer-Encoding is not supported");
     }
-    let length = headers
-        .get("content-length")
-        .map(|value| value.parse::<usize>())
-        .transpose()?
-        .unwrap_or_default();
-    if length > limits.body_bytes {
-        bail!("request body exceeds standalone server limit");
-    }
-    let mut body = vec![b' '; length];
-    reader.read_exact(&mut body)?;
+    // A request without Content-Length carries no body.
+    let body = match headers.get("content-length") {
+        Some(value) => {
+            let length = value
+                .parse::<usize>()
+                .with_context(|| format!("Content-Length {value:?} is not a byte count"))?;
+            if length > limits.body_bytes {
+                bail!("request body exceeds standalone server limit");
+            }
+            let mut body = Vec::with_capacity(length);
+            reader.take(u64::try_from(length)?).read_to_end(&mut body)?;
+            if body.len() != length {
+                bail!(
+                    "request body ended after {} of its {length} Content-Length bytes",
+                    body.len()
+                );
+            }
+            body
+        }
+        None => Vec::new(),
+    };
     Ok(Request {
         method,
         path,
@@ -54,13 +69,13 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: ServerLimits) -> Resu
     })
 }
 
+/// One header line of at most `limit` bytes; a longer line is refused.
 pub(crate) fn read_http_line(reader: &mut impl BufRead, limit: usize) -> Result<String> {
     let mut bytes = Vec::new();
-    let take_limit = u64::try_from(limit)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    let read = reader.take(take_limit).read_until(b'\n', &mut bytes)?;
-    if read > limit {
+    reader
+        .take(u64::try_from(limit)?)
+        .read_until(b'\n', &mut bytes)?;
+    if bytes.len() == limit && !bytes.ends_with(b"\n") {
         bail!("request header line exceeds standalone server limit");
     }
     String::from_utf8(bytes).context("request headers must be UTF-8")
@@ -97,11 +112,13 @@ pub(crate) fn authorize_operator(expected: Option<&str>, request: &Request) -> R
     let Some(expected) = expected else {
         return Ok(());
     };
-    let supplied = request
+    let Some(supplied) = request
         .headers
         .get("authorization")
         .and_then(|value| value.strip_prefix("Bearer "))
-        .unwrap_or("");
+    else {
+        bail!("operator authorization failed: the request carries no Bearer token");
+    };
     if !constant_time_equal(expected.as_bytes(), supplied.as_bytes()) {
         bail!("operator authorization failed");
     }
@@ -124,7 +141,11 @@ pub(crate) fn write_response(stream: &mut TcpStream, response: Response) -> Resu
 pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>> {
     let mut query = BTreeMap::new();
     for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
-        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+        // A pair without `=` names a parameter with an empty value.
+        let (name, value) = match pair.split_once('=') {
+            Some(parts) => parts,
+            None => (pair, ""),
+        };
         query.insert(percent_decode(name)?, percent_decode(value)?);
     }
     Ok(query)
@@ -139,9 +160,7 @@ pub(crate) fn percent_decode(raw: &str) -> Result<String> {
             b'%' => {
                 let high = input.next().context("incomplete URL escape")?;
                 let low = input.next().context("incomplete URL escape")?;
-                let pair = [high, low];
-                let text = std::str::from_utf8(&pair)?;
-                bytes.push(u8::from_str_radix(text, HEX_RADIX)?);
+                bytes.extend(hex::decode([high, low]).context("invalid URL escape")?);
             }
             other => bytes.push(other),
         }
@@ -149,15 +168,14 @@ pub(crate) fn percent_decode(raw: &str) -> Result<String> {
     String::from_utf8(bytes).context("URL is not UTF-8")
 }
 
+/// Whether `left` equals `right`, comparing every byte so the time taken does
+/// not say where they differ.
 pub(crate) fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    let mut difference = 0;
-    for (left, right) in left.iter().zip(right) {
-        difference |= left ^ right;
-    }
-    difference == 0
+    left.len() == right.len()
+        && !left
+            .iter()
+            .zip(right)
+            .fold(false, |differs, (left, right)| differs | (left != right))
 }
 
 pub(crate) fn registration_page() -> String {
@@ -208,7 +226,7 @@ pub(crate) struct NewConversation {
     pub(crate) campaign_id: Option<String>,
     pub(crate) brief_id: Option<String>,
     pub(crate) offered_compensation_minor: Option<i64>,
-    pub(crate) currency: Option<String>,
+    pub(crate) currency: String,
     #[serde(default)]
     pub(crate) shipping_required: bool,
     pub(crate) initial_message: Option<String>,
@@ -217,7 +235,7 @@ pub(crate) struct NewConversation {
 #[derive(Deserialize)]
 pub(crate) struct NewMessage {
     pub(crate) body: String,
-    pub(crate) channel: Option<String>,
+    pub(crate) channel: String,
 }
 
 #[derive(Deserialize, Default)]
