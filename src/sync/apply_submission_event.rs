@@ -10,7 +10,8 @@ pub(crate) fn apply_submission_event(store: &Store, event: &ProviderEvent) -> Re
                     .get("canonical")
                     .cloned()
                     .context("new submission event needs payload.canonical")?,
-            )?,
+            )
+            .context("new submission event's payload.canonical is not a submission")?,
         };
     submission.external_submission_id = Some(event.aggregate_external_id.clone());
     if let Some(status) = event.payload.get("status").and_then(Value::as_str) {
@@ -29,16 +30,19 @@ pub(crate) fn apply_submission_event(store: &Store, event: &ProviderEvent) -> Re
 }
 
 pub(crate) fn apply_payment_event(store: &Store, event: &ProviderEvent) -> Result<()> {
-    let mut payment: Payment = store
-        .find_external("payment", &event.aggregate_external_id)?
-        .or_else(|| {
+    let mut payment: Payment = match store.find_external("payment", &event.aggregate_external_id)? {
+        Some(item) => item,
+        None => serde_json::from_value(
             event
                 .payload
                 .get("canonical")
                 .cloned()
-                .and_then(|value| serde_json::from_value(value).ok())
-        })
-        .context("payment event references unknown payment and has no canonical payload")?;
+                .context("payment event references unknown payment and has no payload.canonical")?,
+        )
+        .context(
+            "payment event references unknown payment and its payload.canonical is not a payment",
+        )?,
+    };
     payment.external_payment_id = Some(event.aggregate_external_id.clone());
     if let Some(status) = event.payload.get("status").and_then(Value::as_str) {
         payment.status = status.into();
