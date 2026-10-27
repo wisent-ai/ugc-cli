@@ -134,7 +134,7 @@ pub(crate) fn run_rights(command: RightsCommand, scope: RunScope<'_>) -> Result<
                 raw_footage_allowed: raw_footage,
                 territories,
                 channels,
-                starts_at: starts_at.unwrap_or_else(Store::now),
+                starts_at,
                 expires_at,
                 model_release,
                 music_cleared,

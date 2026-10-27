@@ -90,7 +90,7 @@ and preserves identities and assignments.
   dashboard, import/export, and local HTTP surfaces;
 - deterministic matching and explicit opt-out handling;
 - technical asset checks plus separate human review states;
-- rights grants and publication checks;
+- rights grants (`--starts-at` required, as the contract states) and publication checks;
 - manual provider connection, outbox, webhook, and replay contracts;
 - optional scoped integration points for Brama, Weles, and Skarbiec.
 

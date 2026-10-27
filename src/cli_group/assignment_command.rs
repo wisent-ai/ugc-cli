@@ -173,8 +173,11 @@ pub(crate) enum RightsCommand {
         territories: Vec<String>,
         #[arg(long, value_delimiter = ',')]
         channels: Vec<String>,
+        /// When the licence starts (RFC 3339), as the contract states it. The
+        /// moment the grant is recorded is not the contract's start, so there
+        /// is no default.
         #[arg(long)]
-        starts_at: Option<String>,
+        starts_at: String,
         #[arg(long)]
         expires_at: Option<String>,
         #[arg(long)]
