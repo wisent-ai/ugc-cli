@@ -109,12 +109,9 @@ impl<'a> StandaloneService<'a> {
                     missing.push("engagement evidence".into());
                 }
             }
+            // Campaign history and portfolio are evidence the caller reads in
+            // `signals`; nobody asked for them, so they do not rank a match.
             let completed = metadata_i64(&creator.metadata, "completed_campaigns");
-            if completed.is_some_and(|count| count > 0) {
-                matched.push("campaign history".into());
-            } else {
-                missing.push("campaign history".into());
-            }
             let response = metadata_f64(&creator.metadata, "response_rate");
             if let Some(bar) = query.min_response_rate {
                 if response.is_some_and(|rate| rate >= bar) {
@@ -124,11 +121,6 @@ impl<'a> StandaloneService<'a> {
                 }
             }
             let portfolio = metadata_i64(&creator.metadata, "portfolio_count");
-            if portfolio.is_some_and(|count| count > 0) {
-                matched.push("portfolio".into());
-            } else {
-                missing.push("portfolio".into());
-            }
             let score = matched.len() as i64;
             matches.push(CreatorMatch {
                 creator,
