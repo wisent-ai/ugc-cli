@@ -19,6 +19,16 @@ const BRAMA_SETTINGS: &[&str] = &[
     "UGC_BRAMA_SIGNING_SECRET_SOURCE",
 ];
 
+/// Every setting that would declare an inference alternative or a credential
+/// store from the caller's environment; the journey declares its own.
+const INFERENCE_SETTINGS: &[&str] = &[
+    "STADO_INFERENCE_ENDPOINT_URL",
+    "STADO_INFERENCE_ENDPOINT_MODEL",
+    "STADO_INFERENCE_ENDPOINT_KEY_ROLE",
+    "STADO_INFERENCE_ORDER",
+    "STADO_CREDENTIALS_STORE",
+];
+
 pub struct Journey {
     pub binary: PathBuf,
     pub root: PathBuf,
@@ -28,7 +38,9 @@ pub struct Journey {
 
 impl Journey {
     /// The binary with the journey's database, home, actor and asset
-    /// directory, and no Brama setting.
+    /// directory, and no Brama setting. Its HOME is the journey's own, so the
+    /// Stado it asks which model service answers (`UGC_TEST_STADO` when set,
+    /// first on PATH) reads no operator configuration and places no Brama.
     pub fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(&self.binary);
         command
@@ -38,10 +50,28 @@ impl Journey {
             .args(args)
             .env("UGC_CLI_DATABASE_URL", &self.database_url)
             .env("UGC_FLEET_HOME", &self.root);
-        for setting in BRAMA_SETTINGS {
+        self.isolate(&mut command);
+        command
+    }
+
+    /// The journey's own HOME, storage and PATH, with no Brama or inference
+    /// setting from the caller; every program a journey runs is isolated so.
+    pub fn isolate(&self, command: &mut Command) {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![self.root.join("bin")];
+        paths.extend(std::env::split_paths(&path));
+        command
+            .env("HOME", self.root.join("home"))
+            .env("TMPDIR", self.root.join("tmp"))
+            .env("WC_STORAGE_BACKEND", "local")
+            .env("WC_LOCAL_STORAGE_PATH", self.root.join("storage"))
+            .env(
+                "PATH",
+                std::env::join_paths(paths).expect("PATH entries join"),
+            );
+        for setting in BRAMA_SETTINGS.iter().chain(INFERENCE_SETTINGS) {
             command.env_remove(setting);
         }
-        command
     }
 
     pub fn run(&mut self, args: &[&str]) -> Result<Output> {
@@ -104,8 +134,15 @@ pub fn journey(name: &str, steps: fn(&mut Journey) -> Result<()>) -> Result<()> 
     let root = PathBuf::from("target/real-tests")
         .join(name)
         .join(Uuid::new_v4().to_string());
-    fs::create_dir_all(root.join("assets"))?;
+    for directory in ["assets", "home", "tmp", "storage", "bin"] {
+        fs::create_dir_all(root.join(directory))?;
+    }
     let root = fs::canonicalize(root)?;
+    // The Stado under test leads the binary's PATH; without one named, the
+    // caller's own `stado` on PATH answers.
+    if let Some(stado) = std::env::var_os("UGC_TEST_STADO") {
+        std::os::unix::fs::symlink(fs::canonicalize(stado)?, root.join("bin").join("stado"))?;
+    }
     let binary = fs::canonicalize(env!("CARGO_BIN_EXE_ugc-cli"))?;
     let mut journey = Journey {
         binary: binary.clone(),

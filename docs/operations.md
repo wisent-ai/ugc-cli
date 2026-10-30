@@ -84,17 +84,24 @@ either is refused as invalid JSON naming the missing field; no currency or
 channel is assumed.
 
 An inbound creator message (`ugc-cli standalone conversation-receive` and the
-portal's message endpoint) is judged by Brama as one typed choice on
-`POST /v1/decisions`, alias `decision-model`, among `opt_out`, `declined`,
-`accepted`, `interested`, `pricing`, `submitted`, `question` and `other`, in
-any language. The chosen intent moves the conversation, chooses the automatic
-reply and is stored on the inbound message. The call is signed as `ugc-cli
-analysis analyze` signs: `BRAMA_URL`, `UGC_BRAMA_AGENT_ID` and
-`UGC_BRAMA_SIGNING_SECRET_SOURCE` must be set; an unset one refuses the
-message with `<NAME> is not set: an inbound creator message's intent is
-judged by Brama, …` before anything is stored. A Brama refusal, an answer
-without the question or a choice outside the asked intents refuses the
-message with what Brama sent; nothing is guessed from words in the message.
+portal's message endpoint) is judged as one typed choice among `opt_out`,
+`declined`, `accepted`, `interested`, `pricing`, `submitted`, `question` and
+`other`, in any language. The chosen intent moves the conversation, chooses
+the automatic reply and is stored on the inbound message. ugc never dials
+Brama itself: an exported `BRAMA_URL` is Brama, used as given; without it ugc
+asks `stado capabilities resolve inference --consumer ugc` which model
+service answers. Brama answers on `POST /v1/decisions`, alias
+`decision-model`, signed as `ugc-cli analysis analyze` signs, with
+`UGC_BRAMA_AGENT_ID` and `UGC_BRAMA_SIGNING_SECRET_SOURCE`; an unset one
+refuses the message by name before anything is stored. The OpenAI-compatible
+endpoint declared in Brama's place (`capabilities.inference.endpoint.url`) is
+asked the same choice as one chat completion with its own declared model and
+the key of the role it names, and must answer `{"choice": "<intent>"}`. When
+no alternative answers, the message is refused with `BRAMA_URL is not set and
+no inference alternative answers ugc: <product> at <route>: <cause>; …` before
+anything is stored. A refusal, an answer without the question or a choice
+outside the asked intents refuses the message with what the service sent;
+nothing is guessed from words in the message.
 
 Without Brama, the operator states the intent:
 `ugc-cli standalone conversation-receive ID --body TEXT --channel CHANNEL
@@ -102,7 +109,10 @@ Without Brama, the operator states the intent:
 conversation exactly as Brama's choice would; Brama is not asked and none of
 its settings is read. An intent outside the eight names above is refused with
 every name listed, before anything is stored. The portal's message endpoint
-has no operator, so it is always judged by Brama.
+has no operator, so it is always judged by the model service Stado resolves.
+`ugc-cli analysis health` and `ugc-cli analysis analyze` take the same model
+service: health reads Brama's `/health` or the endpoint's `/v1/models` and
+names the provider; analyze asks the endpoint for its own declared model.
 
 `ugc-cli analysis analyze --kind KIND --id ID` reviews the record with one
 reviewer instruction that names the record's kind; the model weighs what a
@@ -110,17 +120,22 @@ review of that kind needs.
 
 `cargo test --test conversations` runs the built CLI on a SQLite fleet
 database it creates under `target/real-tests/`, named by
-`UGC_CLI_DATABASE_URL`, with every Brama setting removed. One journey opens a
+`UGC_CLI_DATABASE_URL`, with every Brama setting removed, in a home of its own
+where the real Stado `UGC_TEST_STADO` places no Brama. One journey opens a
 conversation on a campaign and reads back an invitation naming the campaign
 and its product, and a conversation on a campaign that does not exist is
-refused with `campaign not found` and stores nothing. The other records an
+refused with `campaign not found` and stores nothing. Another records an
 operator-stated intent and reads the conversation's status, stage and messages
 back; it checks that the automatic reply says no offer is recorded on a
 conversation without one and states the recorded offer on one with
-`--offer-minor`, then checks the refusals of an unknown intent, a reply Brama
-would judge and a ledger movement without a key. Each run writes
-`report.json` with the source revision, the binary digest and every command's
-exit and output.
+`--offer-minor`, then checks the refusals of an unknown intent, a message no
+alternative can judge and a ledger movement without a key. The third refuses
+a message while nothing is declared, then declares the real OpenAI-compatible
+endpoint `UGC_TEST_ENDPOINT` (`UGC_TEST_ENDPOINT_MODEL`, key
+`UGC_TEST_ENDPOINT_KEY`) in Brama's place and checks that it judges a refusal
+to continue as `opt_out` or `declined` and that Stado records it serving ugc.
+Each run writes `report.json` with the source revision, the binary digest and
+every command's exit and output.
 
 ## Connections
 
