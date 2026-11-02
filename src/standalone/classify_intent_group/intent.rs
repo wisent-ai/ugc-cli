@@ -46,11 +46,13 @@ const INTENTS: &[(Intent, &str)] = &[
     (Intent::Other, "None of the above."),
 ];
 
-/// The settings Brama's signed judgement reads, named as `ugc brama` reads
-/// them; without `BRAMA_URL`, Stado's capability resolution names the service.
+/// The settings the intent judgement reads: Brama's signed decision when
+/// `BRAMA_URL` names Brama, else the chat model `UGC_INTENT_MODEL` names,
+/// asked through Stado's inference alternatives.
 const BRAMA_URL: &str = "BRAMA_URL";
 const AGENT_ID: &str = "UGC_BRAMA_AGENT_ID";
 const SIGNING_SECRET_SOURCE: &str = "UGC_BRAMA_SIGNING_SECRET_SOURCE";
+const INTENT_MODEL: &str = "UGC_INTENT_MODEL";
 /// The key the intent question is asked and answered under.
 const QUESTION: &str = "intent";
 
@@ -116,16 +118,16 @@ fn setting(name: &str) -> Result<String> {
     match std::env::var(name) {
         Ok(value) if !value.trim().is_empty() => Ok(value),
         Ok(_) | Err(std::env::VarError::NotPresent) => bail!(
-            "{name} is not set: Brama judges an inbound creator message's intent signed as {AGENT_ID} with {SIGNING_SECRET_SOURCE}, unless the operator states it with conversation-receive --intent"
+            "{name} is not set: an inbound creator message's intent is judged by Brama signed as {AGENT_ID} with {SIGNING_SECRET_SOURCE} when {BRAMA_URL} names it, else by the model {INTENT_MODEL} names through Stado's inference alternatives, unless the operator states it with conversation-receive --intent"
         ),
         Err(error) => bail!("{name} cannot be read: {error}"),
     }
 }
 
 /// The model's judgement of what the inbound message `body` asks, as one
-/// typed choice among [`INTENTS`]. When neither `BRAMA_URL` nor any
-/// alternative Stado resolves answers, the refusal names each one and the
-/// `conversation-receive --intent` the operator may state instead.
+/// typed choice among [`INTENTS`]. When no model service answers, the
+/// refusal carries its cause and the `conversation-receive --intent` the
+/// operator may state instead.
 pub(crate) fn judged_intent(body: &str) -> Result<Intent> {
     let criteria: serde_json::Map<String, Value> = INTENTS
         .iter()
@@ -136,17 +138,26 @@ pub(crate) fn judged_intent(body: &str) -> Result<Intent> {
         Err(std::env::VarError::NotPresent) => None,
         Err(error) => bail!("{BRAMA_URL} cannot be read: {error}"),
     };
+    let stated = "an inbound creator message's intent needs a model, unless the operator states it with conversation-receive --intent";
     let service = crate::ecosystem::ModelService::resolve(
         named,
         Some((Box::new(|| setting(AGENT_ID)), Box::new(|| setting(SIGNING_SECRET_SOURCE)))),
     )
-    .context("an inbound creator message's intent needs a model, unless the operator states it with conversation-receive --intent")?;
+    .context(stated)?;
+    // Brama's decision route names its own alias; through Stado the chat
+    // model the operator names is asked.
+    let model = match service {
+        crate::ecosystem::ModelService::Brama { .. } => String::new(),
+        crate::ecosystem::ModelService::Stado => setting(INTENT_MODEL)?,
+    };
     let chosen = crate::ecosystem::model_choose(
         &service,
+        &model,
         &json!({ "message": body }),
         QUESTION,
         "What does the creator's message in the state ask of this UGC collaboration conversation? It may be written in any language.",
         &criteria,
-    )?;
+    )
+    .context(stated)?;
     Intent::named(&chosen)
 }

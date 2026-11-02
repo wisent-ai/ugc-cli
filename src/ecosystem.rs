@@ -62,27 +62,25 @@ pub fn weles_status(base_url: &str, token_source: &str, job_id: &str) -> Result<
         .context("cannot read Weles action status")?;
     json_response(response, "Weles queue")
 }
-
-/// The consumer ugc asks Stado's capability resolution as.
+/// The consumer ugc asks Stado's capabilities as.
 const CONSUMER: &str = "ugc";
+/// The command each model request is handed to when no Brama is named.
+const STADO_CALL: [&str; 6] = ["capabilities", "call", "inference", "--consumer", CONSUMER, "--json"];
 
 /// Which model service answers ugc, and how it is called.
 pub enum ModelService {
-    /// Brama at `base_url`; every request it serves for a model is signed as
-    /// the agent with its secret, a health read with nothing.
+    /// Brama at the base URL the operator names; every request it serves for
+    /// a model is signed as the agent with its secret, a health read with
+    /// nothing.
     Brama {
         base_url: String,
         signing: Option<(String, String)>,
     },
-    /// The OpenAI-compatible endpoint Stado's capability resolution hands out
-    /// in Brama's place: its own declared `model`, and the key of the role it
-    /// names, when it names one. It is not Brama and takes no signature.
-    Endpoint {
-        provider: String,
-        base_url: String,
-        model: String,
-        key: Option<String>,
-    },
+    /// Stado's inference alternatives: each request is handed to `stado
+    /// capabilities call inference --consumer ugc`, which asks the first
+    /// alternative in its selected order that answers it and presents what
+    /// that alternative needs. ugc names no alternative and reads no key.
+    Stado,
 }
 
 /// A setting read only when it is needed: Brama's agent id or signing secret
@@ -91,41 +89,15 @@ pub type Deferred<'a> = Box<dyn FnOnce() -> Result<String> + 'a>;
 
 impl ModelService {
     /// The model service ugc calls. A base URL the operator names (`--base-url`
-    /// or `BRAMA_URL`) is Brama, used as given. Otherwise ugc never dials Brama
-    /// itself: it asks `stado capabilities resolve inference --consumer ugc`,
-    /// which hands out Brama's route or the endpoint declared in its place.
-    /// Brama's signing settings are read only when Brama is the one that
-    /// answers and `signing` is given; a health read signs nothing. When no
-    /// alternative answers, the refusal names each one with its route and cause.
+    /// or `BRAMA_URL`) is Brama, used as given, with its signing settings when
+    /// `signing` is given (a health read signs nothing). Otherwise each
+    /// request goes to Stado's inference alternatives.
     pub fn resolve(
         named: Option<String>,
         signing: Option<(Deferred<'_>, Deferred<'_>)>,
     ) -> Result<Self> {
-        let named = named.filter(|url| !url.trim().is_empty());
-        let base_url = match named {
-            Some(base_url) => base_url,
-            None => {
-                let resolved = resolve_inference()?;
-                if resolved.provider != "brama" {
-                    let model = resolved.model.with_context(|| {
-                        format!(
-                            "{} at {} answers in Brama's place but declares no model: set capabilities.inference.endpoint.model",
-                            resolved.provider, resolved.route
-                        )
-                    })?;
-                    let key = match &resolved.key_role {
-                        Some(role) => Some(role_key(role, &resolved.provider, &resolved.route)?),
-                        None => None,
-                    };
-                    return Ok(ModelService::Endpoint {
-                        provider: resolved.provider,
-                        base_url: resolved.route,
-                        model,
-                        key,
-                    });
-                }
-                resolved.route
-            }
+        let Some(base_url) = named.filter(|url| !url.trim().is_empty()) else {
+            return Ok(ModelService::Stado);
         };
         let signing = match signing {
             Some((agent_id, signing_secret_source)) => {
@@ -142,55 +114,45 @@ impl ModelService {
     pub fn provider(&self) -> &str {
         match self {
             ModelService::Brama { .. } => "brama",
-            ModelService::Endpoint { provider, .. } => provider,
+            ModelService::Stado => "stado",
         }
     }
 
-    fn base_url(&self) -> &str {
-        match self {
-            ModelService::Brama { base_url, .. } | ModelService::Endpoint { base_url, .. } => {
-                base_url.trim_end_matches('/')
-            }
-        }
-    }
-
-    /// POST `payload` to `path`: signed over the body for Brama
-    /// (`x-agent-signature` = HMAC-SHA256 of `agent:timestamp:sha256(body)`),
-    /// with the endpoint's key as a bearer otherwise.
+    /// POST `payload` to Brama's `path`, signed over the body
+    /// (`x-agent-signature` = HMAC-SHA256 of `agent:timestamp:sha256(body)`);
+    /// through Stado, a chat completion handed to `stado capabilities call`.
     fn post(&self, path: &str, payload: &Value, failed: &str) -> Result<Value> {
-        let body = serde_json::to_vec(payload)?;
-        let endpoint = format!("{}{path}", self.base_url());
-        let request = Client::new()
-            .post(&endpoint)
-            .header("content-type", "application/json");
-        let request = match self {
-            ModelService::Brama {
-                signing: Some((agent_id, secret)),
-                ..
-            } => {
-                let timestamp = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)?
-                    .as_secs()
-                    .to_string();
-                let body_hash = hex::encode(Sha256::digest(&body));
-                let signed = format!("{agent_id}:{timestamp}:{body_hash}");
-                let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
-                mac.update(signed.as_bytes());
-                let signature = hex::encode(mac.finalize().into_bytes());
-                request
-                    .header("x-agent-id", agent_id)
-                    .header("x-agent-timestamp", &timestamp)
-                    .header("x-agent-signature", signature)
+        let (base_url, signing) = match self {
+            ModelService::Brama { base_url, signing } => (base_url.trim_end_matches('/'), signing),
+            ModelService::Stado => {
+                if path != "/v1/chat/completions" {
+                    bail!("{path} is Brama's own route; through Stado only chat completions are asked");
+                }
+                return call_stado(payload);
             }
-            ModelService::Brama { signing: None, .. } => {
-                bail!(
-                    "Brama answers only requests signed as an agent; set UGC_BRAMA_AGENT_ID and UGC_BRAMA_SIGNING_SECRET_SOURCE"
-                )
-            }
-            ModelService::Endpoint { key: Some(key), .. } => request.bearer_auth(key),
-            ModelService::Endpoint { key: None, .. } => request,
         };
-        let response = request
+        let Some((agent_id, secret)) = signing else {
+            bail!(
+                "Brama answers only requests signed as an agent; set UGC_BRAMA_AGENT_ID and UGC_BRAMA_SIGNING_SECRET_SOURCE"
+            )
+        };
+        let body = serde_json::to_vec(payload)?;
+        let endpoint = format!("{base_url}{path}");
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_secs()
+            .to_string();
+        let body_hash = hex::encode(Sha256::digest(&body));
+        let signed = format!("{agent_id}:{timestamp}:{body_hash}");
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
+        mac.update(signed.as_bytes());
+        let signature = hex::encode(mac.finalize().into_bytes());
+        let response = Client::new()
+            .post(&endpoint)
+            .header("content-type", "application/json")
+            .header("x-agent-id", agent_id)
+            .header("x-agent-timestamp", &timestamp)
+            .header("x-agent-signature", signature)
             .body(body)
             .send()
             .with_context(|| format!("{failed} at {endpoint}"))?;
@@ -198,124 +160,102 @@ impl ModelService {
     }
 }
 
-/// What `stado capabilities resolve inference --consumer ugc` handed out.
-struct Resolved {
-    provider: String,
-    route: String,
-    model: Option<String>,
-    key_role: Option<String>,
+/// The `Error:` line of a failed Stado command, else its last line.
+fn stado_cause(said: &str) -> String {
+    let lines: Vec<&str> = said.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    lines
+        .iter()
+        .rev()
+        .find_map(|line| line.strip_prefix("Error: "))
+        .or_else(|| lines.last().copied())
+        .unwrap_or("it said nothing")
+        .to_owned()
 }
 
-fn resolve_inference() -> Result<Resolved> {
-    let operation = format!("stado capabilities resolve inference --consumer {CONSUMER} --json");
-    let output = std::process::Command::new("stado")
-        .args(["capabilities", "resolve", "inference", "--consumer", CONSUMER, "--json"])
-        .stdin(std::process::Stdio::null())
-        .output()
+/// Hand one chat-completions `payload` to Stado's inference alternatives and
+/// read the answer the one that answered gave. Refused naming the command
+/// when Stado cannot run, and with Stado's own sentence (each alternative's
+/// cause and the command that answers the kept request) when none answers.
+fn call_stado(payload: &Value) -> Result<Value> {
+    use std::io::Write;
+    let operation = format!("stado {}", STADO_CALL.join(" "));
+    let mut child = std::process::Command::new("stado")
+        .args(STADO_CALL)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .with_context(|| {
             format!("BRAMA_URL is not set and `{operation}` could not run; set BRAMA_URL or install Stado")
         })?;
-    if !output.status.success() {
-        let named = [&output.stdout, &output.stderr]
-            .into_iter()
-            .filter_map(|bytes| serde_json::from_slice::<Value>(bytes).ok())
-            .find_map(|envelope| envelope["details"]["unreachable"].as_array().cloned())
-            .map(|items| {
-                items
-                    .iter()
-                    .map(|item| {
-                        format!(
-                            "{} at {}: {}",
-                            item["product"].as_str().unwrap_or("an alternative"),
-                            item["route"].as_str().unwrap_or("its route"),
-                            item["cause"].as_str().unwrap_or("no cause given")
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            })
-            .filter(|named| !named.is_empty());
-        match named {
-            Some(named) => bail!(
-                "BRAMA_URL is not set and no inference alternative answers {CONSUMER}: {named}; set BRAMA_URL, or declare an endpoint in Brama's place (stado config set capabilities.inference.endpoint.url <url> and capabilities.inference.endpoint.model <model>)"
-            ),
-            None => bail!(
-                "BRAMA_URL is not set and `{operation}` exited {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-        }
-    }
-    let answer: Value = serde_json::from_slice(&output.stdout)
-        .with_context(|| format!("`{operation}` printed an answer that is not JSON"))?;
-    let text = |field: &str| {
-        answer[field]
-            .as_str()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map(str::to_owned)
-    };
-    let (Some(provider), Some(route)) = (text("provider"), text("route")) else {
-        bail!("`{operation}` answered no provider and route");
-    };
-    Ok(Resolved {
-        provider,
-        route,
-        model: text("model"),
-        key_role: text("key_role"),
-    })
-}
-
-/// The key of the endpoint Stado handed out, read as the role it names.
-fn role_key(role: &str, provider: &str, base: &str) -> Result<String> {
-    let output = std::process::Command::new("stado")
-        .args(["credentials", "get", "--role", role, "--field", "token"])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .with_context(|| format!("stado credentials get --role {role} could not run"))?;
+    child
+        .stdin
+        .take()
+        .context("stado's standard input could not be opened")?
+        .write_all(&serde_json::to_vec(payload)?)
+        .with_context(|| format!("the request could not be handed to `{operation}`"))?;
+    let output = child
+        .wait_with_output()
+        .with_context(|| format!("`{operation}` did not end"))?;
     if !output.status.success() {
         bail!(
-            "{provider} at {base} answers in Brama's place, but the key of role {role} cannot be read: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            "BRAMA_URL is not set and no inference alternative answered `{operation}` ({}): {}",
+            output.status,
+            stado_cause(&String::from_utf8_lossy(&output.stderr))
         );
     }
-    let key = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if key.is_empty() {
-        bail!("stado credentials get --role {role} answered an empty key");
+    let mut printed: Value = serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("`{operation}` printed an answer that is not JSON"))?;
+    match printed.get_mut("answer").map(Value::take) {
+        Some(answer) if !answer.is_null() => Ok(answer),
+        _ => bail!("`{operation}` printed no answer: {printed}"),
     }
-    Ok(key)
 }
 
-/// Whether the model service answers: Brama's `/health`, or an endpoint's
-/// `/v1/models`, each named with the provider that answered.
+/// Whether the model service answers: Brama's `/health`, or, through Stado,
+/// the order of its inference alternatives, read without asking any of them.
 pub fn model_health(service: &ModelService) -> Result<Value> {
-    let (path, request) = match service {
-        ModelService::Brama { .. } => (
-            "/health",
-            Client::new().get(format!("{}/health", service.base_url())),
-        ),
-        ModelService::Endpoint { key, .. } => {
-            let request = Client::new().get(format!("{}/v1/models", service.base_url()));
-            (
-                "/v1/models",
-                match key {
-                    Some(key) => request.bearer_auth(key),
-                    None => request,
-                },
-            )
+    let base_url = match service {
+        ModelService::Brama { base_url, .. } => base_url.trim_end_matches('/'),
+        ModelService::Stado => {
+            let operation = "stado capabilities inference --json";
+            let output = std::process::Command::new("stado")
+                .args(["capabilities", "inference", "--json"])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .with_context(|| {
+                    format!("BRAMA_URL is not set and `{operation}` could not run; set BRAMA_URL or install Stado")
+                })?;
+            if !output.status.success() {
+                bail!(
+                    "BRAMA_URL is not set and `{operation}` failed ({}): {}",
+                    output.status,
+                    stado_cause(&String::from_utf8_lossy(&output.stderr))
+                );
+            }
+            let listed: Value = serde_json::from_slice(&output.stdout)
+                .with_context(|| format!("`{operation}` printed no JSON"))?;
+            let family = listed["alternatives"]
+                .as_array()
+                .and_then(|families| families.iter().find(|family| family["family"] == "inference"))
+                .cloned()
+                .with_context(|| format!("`{operation}` lists no inference alternatives: {listed}"))?;
+            return Ok(json!({
+                "provider": service.provider(),
+                "called_through": format!("stado {}", STADO_CALL.join(" ")),
+                "order": family["order"],
+                "served": family["served"][CONSUMER],
+            }));
         }
     };
-    let response = request.send().with_context(|| {
-        format!(
-            "cannot reach {} at {}{path}",
-            service.provider(),
-            service.base_url()
-        )
-    })?;
+    let response = Client::new()
+        .get(format!("{base_url}/health"))
+        .send()
+        .with_context(|| format!("cannot reach brama at {base_url}/health"))?;
     let answer = json_response(response, service.provider())?;
     Ok(json!({
         "provider": service.provider(),
-        "base_url": service.base_url(),
+        "base_url": base_url,
         "answer": answer,
     }))
 }
@@ -327,14 +267,8 @@ pub fn model_analyze(
     subject: &Value,
     instruction: Option<&str>,
 ) -> Result<Value> {
-    let model = match service {
-        ModelService::Brama { .. } => {
-            required("Brama model", model)?;
-            model
-        }
-        // The endpoint knows no Brama route: it is asked for its own model.
-        ModelService::Endpoint { model, .. } => model.as_str(),
-    };
+    // Every model service is asked for the model the operator names.
+    required("model", model)?;
     let system = system_prompt(subject_kind);
     let user = match instruction {
         Some(instruction) => format!(
@@ -363,15 +297,18 @@ pub fn model_analyze(
 /// The alias Brama answers typed questions through; which model answers is
 /// Brama's route.
 const DECISION_ALIAS: &str = "decision-model";
+/// The function a choice asked through Stado is answered by calling.
+const CHOICE_FUNCTION: &str = "record_choice";
 
 /// One typed choice about `state`: `question` with `criteria` (option name to
-/// meaning). Brama answers it through `POST /v1/decisions`; an endpoint in its
-/// place, which has no decision route, is asked the same question as one chat
-/// completion whose whole answer must be `{"choice": "<option>"}`. Either
-/// answer that is not one of the options, or not that shape, is refused with
-/// what the service sent.
+/// meaning). A named Brama answers it through `POST /v1/decisions`; through
+/// Stado, which carries chat completions only, it is one chat completion that
+/// must call `record_choice` with `{"choice": "<option>"}`, the option bound
+/// by the function's schema. Either answer that is not one of the options, or
+/// not that shape, is refused with what the service sent.
 pub fn model_choose(
     service: &ModelService,
+    model: &str,
     state: &Value,
     key: &str,
     instructions: &str,
@@ -391,41 +328,50 @@ pub fn model_choose(
                 .map(str::to_owned)
                 .with_context(|| format!("Brama's decision answered no `{key}` choice: {answer}"))?
         }
-        ModelService::Endpoint {
-            model, provider, ..
-        } => {
-            let options = serde_json::to_string_pretty(criteria)?;
+        ModelService::Stado => {
+            required("model", model)?;
+            let options: Vec<&String> = criteria.keys().collect();
             let payload = json!({
                 "model": model,
-                "temperature": 0,
                 "messages": [
                     {"role": "system", "content": format!(
-                        "{instructions}\nChoose exactly one option, by its name, from these options and their meanings:\n{options}\nAnswer with only the JSON object {{\"choice\": \"<option name>\"}} and nothing else."
+                        "{instructions}\nChoose exactly one option from these options and their meanings, and record it with {CHOICE_FUNCTION}:\n{}",
+                        serde_json::to_string_pretty(criteria)?
                     )},
                     {"role": "user", "content": serde_json::to_string_pretty(state)?}
-                ]
+                ],
+                "tools": [{"type": "function", "function": {
+                    "name": CHOICE_FUNCTION,
+                    "description": format!("The `{key}` choice."),
+                    "strict": true,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"choice": {"type": "string", "enum": options}},
+                        "required": ["choice"],
+                        "additionalProperties": false,
+                    },
+                }}],
+                "tool_choice": {"type": "function", "function": {"name": CHOICE_FUNCTION}},
             });
             let answer = service.post(
                 "/v1/chat/completions",
                 &payload,
                 "the decision request failed",
             )?;
-            let content = answer["choices"][0]["message"]["content"]
-                .as_str()
-                .with_context(|| format!("{provider} answered no message: {answer}"))?;
-            let trimmed = content
-                .trim()
-                .trim_start_matches("```json")
-                .trim_start_matches("```")
-                .trim_end_matches("```")
-                .trim();
-            let parsed: Value = serde_json::from_str(trimmed).with_context(|| {
-                format!("{provider} answered the `{key}` choice with something that is not {{\"choice\": …}}: {content}")
+            let call = &answer["choices"][0]["message"]["tool_calls"][0]["function"];
+            if call["name"] != CHOICE_FUNCTION {
+                bail!("the answer to the `{key}` choice did not call {CHOICE_FUNCTION}: {answer}");
+            }
+            let arguments = call["arguments"].as_str().with_context(|| {
+                format!("{CHOICE_FUNCTION} was called with no arguments text: {answer}")
+            })?;
+            let parsed: Value = serde_json::from_str(arguments).with_context(|| {
+                format!("{CHOICE_FUNCTION} was called with arguments that are not JSON: {arguments}")
             })?;
             parsed["choice"]
                 .as_str()
                 .map(str::to_owned)
-                .with_context(|| format!("{provider} answered no `{key}` choice: {content}"))?
+                .with_context(|| format!("{CHOICE_FUNCTION} names no `choice`: {arguments}"))?
         }
     };
     if !criteria.contains_key(&chosen) {

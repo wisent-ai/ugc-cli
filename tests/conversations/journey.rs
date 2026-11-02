@@ -151,7 +151,7 @@ fn stated_intent(journey: &mut Journey) -> Result<()> {
             "--channel",
             "email",
         ],
-        "BRAMA_URL is not set and no inference alternative answers ugc: brama at ",
+        "UGC_INTENT_MODEL is not set: an inbound creator message's intent is judged by Brama",
     )?;
     let refused_after = message_count(journey, &conversation)?;
     ensure!(
@@ -256,19 +256,14 @@ fn an_invitation_names_the_campaign_it_was_read_from() -> Result<()> {
     journey("campaign-invitation", campaign_invitation)
 }
 
-/// With no Brama placed anywhere, an inbound message's intent is judged by
-/// the real OpenAI-compatible endpoint (`UGC_TEST_ENDPOINT`, serving
-/// `UGC_TEST_ENDPOINT_MODEL`, its key `UGC_TEST_ENDPOINT_KEY`) declared in
-/// Brama's place through the real Stado `UGC_TEST_STADO`; Stado records that
-/// the endpoint served ugc. Before it is declared, the message is refused
-/// naming every alternative and nothing is stored.
-fn intent_judged_in_bramas_place(journey: &mut Journey) -> Result<()> {
-    let endpoint = std::env::var("UGC_TEST_ENDPOINT")
-        .context("set UGC_TEST_ENDPOINT to a real OpenAI-compatible base url")?;
-    let model = std::env::var("UGC_TEST_ENDPOINT_MODEL")
-        .context("set UGC_TEST_ENDPOINT_MODEL to the model that endpoint serves")?;
-    let key = std::env::var("UGC_TEST_ENDPOINT_KEY")
-        .context("set UGC_TEST_ENDPOINT_KEY to that endpoint's key")?;
+/// With no Brama placed anywhere, an inbound message's intent is asked of
+/// Stado's inference alternatives through the real Stado `UGC_TEST_STADO`,
+/// for the model `UGC_INTENT_MODEL` names. Before anything answers, the
+/// message is refused with Stado's sentence (Brama's cause and the command
+/// that answers the kept request) and nothing is stored; the statement
+/// recorded for exactly that request then answers it, the judged message is
+/// stored, and Stado records that the attestation alternative served ugc.
+fn intent_judged_through_stado(journey: &mut Journey) -> Result<()> {
     stado(journey, &["config", "init"], None)?;
     let creator = journey.accepted(&["creator", "add", "--name", "Judged Intent Creator"])?;
     let creator = text(&creator, "/id")?.to_string();
@@ -295,40 +290,50 @@ fn intent_judged_in_bramas_place(journey: &mut Journey) -> Result<()> {
     ];
     journey.refused(
         &receive,
-        "model-endpoint at capabilities.inference.endpoint.url",
+        "UGC_INTENT_MODEL is not set: an inbound creator message's intent is judged by Brama",
+    )?;
+    journey.with_env("UGC_INTENT_MODEL", "any-chat-model");
+    journey.refused(
+        &receive,
+        "no inference alternative answered `stado capabilities call inference --consumer ugc --json`",
+    )?;
+    journey.refused(
+        &receive,
+        "stado capabilities attestation record inference --consumer ugc",
     )?;
     ensure!(
         message_count(journey, &conversation)? == before,
         "a message nobody judged was stored"
     );
 
-    let store = journey.root.join("credentials.json");
-    let store = format!("file://{}", store.display());
-    stado(
+    let kept: serde_json::Value = serde_json::from_str(&stado(
         journey,
-        &["config", "set", "credentials.store", &store],
+        &["capabilities", "attestation", "list", "inference", "--consumer", "ugc", "--json"],
         None,
-    )?;
+    )?)?;
+    let request = kept[0]["request"]
+        .as_str()
+        .context("one request is kept")?
+        .to_owned();
     stado(
         journey,
-        &["credentials", "put", "--role", "ugc-journey-endpoint"],
-        Some(&format!("{{\"token\":\"{key}\"}}")),
+        &[
+            "capabilities",
+            "attestation",
+            "record",
+            "inference",
+            "--consumer",
+            "ugc",
+            &request,
+            "--checked",
+            "the creator asks not to be contacted again",
+        ],
+        Some(r#"{"choice":"opt_out"}"#),
     )?;
-    for (field, value) in [
-        ("capabilities.inference.endpoint.url", endpoint.as_str()),
-        ("capabilities.inference.endpoint.model", model.as_str()),
-        (
-            "capabilities.inference.endpoint.key_role",
-            "ugc-journey-endpoint",
-        ),
-    ] {
-        stado(journey, &["config", "set", field, value], None)?;
-    }
     let received = journey.accepted(&receive)?;
-    let intent = text(&received, "/inbound/intent")?;
     ensure!(
-        ["opt_out", "declined"].contains(&intent),
-        "the endpoint judged a refusal to continue as `{intent}`"
+        text(&received, "/inbound/intent")? == "opt_out",
+        "the statement's choice was not the stored intent: {received}"
     );
     ensure!(
         message_count(journey, &conversation)? > before,
@@ -340,13 +345,13 @@ fn intent_judged_in_bramas_place(journey: &mut Journey) -> Result<()> {
         None,
     )?)?;
     ensure!(
-        listed["alternatives"][0]["served"]["ugc"]["provider"] == "model-endpoint",
-        "Stado does not record model-endpoint serving ugc: {listed}"
+        listed["alternatives"][0]["served"]["ugc"]["provider"] == "attestation",
+        "Stado does not record attestation serving ugc: {listed}"
     );
     Ok(())
 }
 
 #[test]
-fn an_intent_is_judged_by_the_endpoint_stado_resolves_in_bramas_place() -> Result<()> {
-    journey("judged-intent", intent_judged_in_bramas_place)
+fn an_intent_is_judged_by_whichever_alternative_stado_asks() -> Result<()> {
+    journey("judged-intent", intent_judged_through_stado)
 }

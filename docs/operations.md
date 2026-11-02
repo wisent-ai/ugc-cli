@@ -89,17 +89,23 @@ portal's message endpoint) is judged as one typed choice among `opt_out`,
 `other`, in any language. The chosen intent moves the conversation, chooses
 the automatic reply and is stored on the inbound message. ugc never dials
 Brama itself: an exported `BRAMA_URL` is Brama, used as given; without it ugc
-asks `stado capabilities resolve inference --consumer ugc` which model
-service answers. Brama answers on `POST /v1/decisions`, alias
-`decision-model`, signed as `ugc-cli analysis analyze` signs, with
-`UGC_BRAMA_AGENT_ID` and `UGC_BRAMA_SIGNING_SECRET_SOURCE`; an unset one
-refuses the message by name before anything is stored. The OpenAI-compatible
-endpoint declared in Brama's place (`capabilities.inference.endpoint.url`) is
-asked the same choice as one chat completion with its own declared model and
-the key of the role it names, and must answer `{"choice": "<intent>"}`. When
-no alternative answers, the message is refused with `BRAMA_URL is not set and
-no inference alternative answers ugc: <product> at <route>: <cause>; …` before
-anything is stored. A refusal, an answer without the question or a choice
+names no model service and hands each request to `stado capabilities call
+inference --consumer ugc --json`, which asks the first alternative in Stado's
+selected order that answers it — Brama, or a statement recorded for that
+exact request — so an alternative Stado gains later is used with no change to
+ugc. A named Brama answers on `POST /v1/decisions`, alias `decision-model`,
+signed as `ugc-cli analysis analyze` signs, with `UGC_BRAMA_AGENT_ID` and
+`UGC_BRAMA_SIGNING_SECRET_SOURCE`; an unset one refuses the message by name
+before anything is stored. Through Stado the choice is one chat completion
+asking the model `UGC_INTENT_MODEL` names, which must call `record_choice`
+with `{"choice": "<intent>"}`, the intent bound by the function's schema; an
+unset `UGC_INTENT_MODEL` refuses the message by name. When no alternative
+answers, the message is refused with `BRAMA_URL is not set and no inference
+alternative answered `stado capabilities call inference --consumer ugc
+--json` (exit status: 75): …` followed by Stado's sentence, which names each
+alternative's cause and the `stado capabilities attestation record inference
+--consumer ugc <sha> --checked …` command that answers the kept request,
+before anything is stored. A refusal, an answer without the call or a choice
 outside the asked intents refuses the message with what the service sent;
 nothing is guessed from words in the message.
 
@@ -109,10 +115,11 @@ Without Brama, the operator states the intent:
 conversation exactly as Brama's choice would; Brama is not asked and none of
 its settings is read. An intent outside the eight names above is refused with
 every name listed, before anything is stored. The portal's message endpoint
-has no operator, so it is always judged by the model service Stado resolves.
+has no operator, so it is always judged by a model service.
 `ugc-cli analysis health` and `ugc-cli analysis analyze` take the same model
-service: health reads Brama's `/health` or the endpoint's `/v1/models` and
-names the provider; analyze asks the endpoint for its own declared model.
+service: health reads Brama's `/health`, or through Stado the order of its
+inference alternatives and which one last served ugc, read without asking
+any; analyze asks for the model `--model` names on either.
 
 `ugc-cli analysis analyze --kind KIND --id ID` reviews the record with one
 reviewer instruction that names the record's kind; the model weighs what a
@@ -130,10 +137,11 @@ back; it checks that the automatic reply says no offer is recorded on a
 conversation without one and states the recorded offer on one with
 `--offer-minor`, then checks the refusals of an unknown intent, a message no
 alternative can judge and a ledger movement without a key. The third refuses
-a message while nothing is declared, then declares the real OpenAI-compatible
-endpoint `UGC_TEST_ENDPOINT` (`UGC_TEST_ENDPOINT_MODEL`, key
-`UGC_TEST_ENDPOINT_KEY`) in Brama's place and checks that it judges a refusal
-to continue as `opt_out` or `declined` and that Stado records it serving ugc.
+a message while `UGC_INTENT_MODEL` is unset, then with it set while nothing
+answers (Stado's sentence names the attestation command), records a
+statement for exactly the kept request, and checks that the message is then
+stored as `opt_out` and that Stado records the attestation alternative
+serving ugc.
 Each run writes `report.json` with the source revision, the binary digest and
 every command's exit and output.
 

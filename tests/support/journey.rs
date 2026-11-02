@@ -12,20 +12,23 @@ use std::{
 };
 use uuid::Uuid;
 
-/// Every setting the Brama judgement reads; none may reach the binary.
+/// Every setting a model judgement reads; none may reach the binary unless
+/// a journey sets it.
 const BRAMA_SETTINGS: &[&str] = &[
     "BRAMA_URL",
     "UGC_BRAMA_AGENT_ID",
     "UGC_BRAMA_SIGNING_SECRET_SOURCE",
+    "UGC_INTENT_MODEL",
 ];
 
-/// Every setting that would declare an inference alternative or a credential
-/// store from the caller's environment; the journey declares its own.
+/// Every setting that would select an inference order, keep statements
+/// elsewhere or name a credential store from the caller's environment; the
+/// journey's Stado reads its own home.
 const INFERENCE_SETTINGS: &[&str] = &[
-    "STADO_INFERENCE_ENDPOINT_URL",
-    "STADO_INFERENCE_ENDPOINT_MODEL",
-    "STADO_INFERENCE_ENDPOINT_KEY_ROLE",
     "STADO_INFERENCE_ORDER",
+    "STADO_ATTESTATIONS",
+    "STADO_CAPABILITIES_RECORD",
+    "STADO_CONFIG",
     "STADO_CREDENTIALS_STORE",
 ];
 
@@ -34,6 +37,8 @@ pub struct Journey {
     pub root: PathBuf,
     pub database_url: String,
     pub commands: Vec<Value>,
+    /// Settings this journey gives the binary, after the isolation.
+    pub env: Vec<(String, String)>,
 }
 
 impl Journey {
@@ -51,7 +56,13 @@ impl Journey {
             .env("UGC_CLI_DATABASE_URL", &self.database_url)
             .env("UGC_FLEET_HOME", &self.root);
         self.isolate(&mut command);
+        command.envs(self.env.iter().map(|(name, value)| (name, value)));
         command
+    }
+
+    /// Give the binary `name`=`value` for every later command.
+    pub fn with_env(&mut self, name: &str, value: &str) {
+        self.env.push((name.to_owned(), value.to_owned()));
     }
 
     /// The journey's own HOME, storage and PATH, with no Brama or inference
@@ -149,6 +160,7 @@ pub fn journey(name: &str, steps: fn(&mut Journey) -> Result<()>) -> Result<()> 
         database_url: create_database(&root)?,
         root: root.clone(),
         commands: Vec::new(),
+        env: Vec::new(),
     };
     let result = steps(&mut journey);
     fs::write(
