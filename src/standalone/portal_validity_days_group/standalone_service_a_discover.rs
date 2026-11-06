@@ -197,11 +197,7 @@ impl<'a> StandaloneService<'a> {
             }
         }
         for conversation in existing.iter().filter(|conversation| {
-            conversation.assignment_id.is_none()
-                && !matches!(
-                    conversation.status.as_str(),
-                    "declined" | "opted_out" | "closed"
-                )
+            conversation.assignment_id.is_none() && !conversation.status.ended()
         }) {
             if let Some(amount) = conversation.offered_compensation_minor {
                 let Some(total) = reserved.checked_add(amount) else {

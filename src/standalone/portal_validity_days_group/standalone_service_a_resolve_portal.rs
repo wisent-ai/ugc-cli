@@ -7,7 +7,7 @@ impl<'a> StandaloneService<'a> {
             .store
             .find_external("portal_access", &hash)?
             .context("invalid portal token")?;
-        if access.status != "active" {
+        if access.status != PortalAccessStatus::Active {
             bail!("portal access is not active");
         }
         if let Some(expires_at) = &access.expires_at {
@@ -22,7 +22,7 @@ impl<'a> StandaloneService<'a> {
             &access.id,
             Some(&access.creator_id),
             None,
-            &access.status,
+            access.status.word(),
             Some(&access.token_hash),
             &access,
             &access.created_at,
@@ -31,13 +31,13 @@ impl<'a> StandaloneService<'a> {
     }
     pub fn revoke_portal(&self, access_id: &str) -> Result<PortalAccess> {
         let mut access: PortalAccess = self.store.get("portal_access", access_id)?;
-        access.status = "revoked".into();
+        access.status = PortalAccessStatus::Revoked;
         self.store.put(
             "portal_access",
             &access.id,
             Some(&access.creator_id),
             None,
-            &access.status,
+            access.status.word(),
             Some(&access.token_hash),
             &access,
             &access.created_at,

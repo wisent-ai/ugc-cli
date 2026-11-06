@@ -88,6 +88,42 @@ pub struct CreatorMatch {
     pub signals: Value,
 }
 
+/// Where a creator conversation stands: open from outreach, then interested,
+/// accepted (an assignment exists), declined or opted out, as the creator's
+/// replies say. `closed` is read from records stored before the declined and
+/// opted-out states existed. A stored conversation naming any other status is
+/// refused when it is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationStatus {
+    Open,
+    Interested,
+    Accepted,
+    Declined,
+    OptedOut,
+    Closed,
+}
+
+impl ConversationStatus {
+    /// The status as the store's status column holds it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Interested => "interested",
+            Self::Accepted => "accepted",
+            Self::Declined => "declined",
+            Self::OptedOut => "opted_out",
+            Self::Closed => "closed",
+        }
+    }
+
+    /// Whether the creator ended the conversation: nothing more is sent or
+    /// received, its offer reserves no budget, and it is never accepted.
+    pub fn ended(self) -> bool {
+        matches!(self, Self::Declined | Self::OptedOut | Self::Closed)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conversation {
     pub id: String,
@@ -95,7 +131,7 @@ pub struct Conversation {
     pub campaign_id: Option<String>,
     pub brief_id: Option<String>,
     pub assignment_id: Option<String>,
-    pub status: String,
+    pub status: ConversationStatus,
     pub stage: String,
     pub offered_compensation_minor: Option<i64>,
     pub currency: String,
@@ -122,12 +158,32 @@ pub struct ConversationMessage {
     pub created_at: String,
 }
 
+/// Whether a creator's portal link still opens the portal: active from its
+/// creation until the operator revokes it. A stored access naming another
+/// status is refused when it is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PortalAccessStatus {
+    Active,
+    Revoked,
+}
+
+impl PortalAccessStatus {
+    /// The status as the store's status column holds it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Revoked => "revoked",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortalAccess {
     pub id: String,
     pub creator_id: String,
     pub token_hash: String,
-    pub status: String,
+    pub status: PortalAccessStatus,
     pub expires_at: Option<String>,
     pub created_at: String,
     pub last_used_at: Option<String>,

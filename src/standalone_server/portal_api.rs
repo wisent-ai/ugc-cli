@@ -198,7 +198,7 @@ pub(crate) fn portal_page(store: &Store, token: &str, actor: &str) -> Result<Res
             "<section><strong>{}</strong><p>Stage: {} · Status: {}</p><textarea id=\"reply-{}\" placeholder=\"Write a reply\"></textarea><div class=\"actions\"><button onclick=\"replyTo('{}')\">Send reply</button><button class=\"secondary\" onclick=\"acceptConversation('{}')\">Accept offer</button></div></section>",
             escape_html(&conversation.id),
             escape_html(&conversation.stage),
-            escape_html(&conversation.status),
+            escape_html(conversation.status.word()),
             escape_html(&conversation.id),
             escape_html(&conversation.id),
             escape_html(&conversation.id),

@@ -11,9 +11,9 @@ use crate::{
     db::Store,
     model::{
         Asset, Assignment, AttributionEvent, Brief, Campaign, Conversation, ConversationMessage,
-        Creator, CreatorIdentity, CreatorMatch, DiscoveryQuery, LedgerBalance, LedgerTransfer,
-        MetricSnapshot, Payment, PortalAccess, Shipment, StandalonePublication, Submission,
-        UsageRights, WorkflowReport,
+        ConversationStatus, Creator, CreatorIdentity, CreatorMatch, DiscoveryQuery, LedgerBalance,
+        LedgerTransfer, MetricSnapshot, Payment, PortalAccess, PortalAccessStatus, Shipment,
+        StandalonePublication, Submission, UsageRights, WorkflowReport,
     },
     service::UgcService,
 };

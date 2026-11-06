@@ -13,11 +13,11 @@ impl<'a> StandaloneService<'a> {
         let attention = json!({
             "unanswered_conversations": conversations.iter().filter(|item| {
                 item.last_inbound_at > item.last_outbound_at
-                    && !matches!(item.status.as_str(), "closed" | "declined" | "opted_out")
+                    && !item.status.ended()
             }).count(),
             "operator_follow_ups": conversations.iter().filter(|item| {
                 item.next_action_at.is_some()
-                    && !matches!(item.status.as_str(), "closed" | "declined" | "opted_out")
+                    && !item.status.ended()
             }).count(),
             "pending_reviews": submissions.iter().filter(|item| item.status == "pending_review").count(),
             "payments_to_release": payments.iter().filter(|item| item.status == "pending").count(),
@@ -241,7 +241,7 @@ impl<'a> StandaloneService<'a> {
             &conversation.id,
             conversation.campaign_id.as_deref(),
             Some(&conversation.creator_id),
-            &conversation.status,
+            conversation.status.word(),
             None,
             conversation,
             &conversation.created_at,

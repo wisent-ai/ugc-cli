@@ -44,7 +44,7 @@ impl<'a> StandaloneService<'a> {
             campaign_id: campaign_id.clone(),
             brief_id,
             assignment_id: None,
-            status: "open".into(),
+            status: ConversationStatus::Open,
             stage: "outreach".into(),
             offered_compensation_minor,
             currency,
@@ -88,11 +88,8 @@ impl<'a> StandaloneService<'a> {
         stated: Option<&str>,
     ) -> Result<Value> {
         let mut conversation: Conversation = self.store.get("conversation", conversation_id)?;
-        if matches!(
-            conversation.status.as_str(),
-            "closed" | "declined" | "opted_out"
-        ) {
-            bail!("conversation is not open");
+        if conversation.status.ended() {
+            bail!("conversation is not open: its status is {}", conversation.status.word());
         }
         let intent = Intent::of(stated, &body)?;
         let inbound = self.add_conversation_message(
@@ -112,19 +109,19 @@ impl<'a> StandaloneService<'a> {
         };
         match intent {
             Intent::OptOut => {
-                conversation.status = "opted_out".into();
+                conversation.status = ConversationStatus::OptedOut;
                 conversation.stage = "closed".into();
             }
             Intent::Declined => {
-                conversation.status = "declined".into();
+                conversation.status = ConversationStatus::Declined;
                 conversation.stage = "closed".into();
             }
             Intent::Interested => {
-                conversation.status = "interested".into();
+                conversation.status = ConversationStatus::Interested;
                 conversation.stage = "qualification".into();
             }
             Intent::Accepted => {
-                conversation.status = "accepted".into();
+                conversation.status = ConversationStatus::Accepted;
                 conversation.stage = "contracting".into();
             }
             Intent::Pricing => {
@@ -162,11 +159,8 @@ impl<'a> StandaloneService<'a> {
         automated: bool,
     ) -> Result<ConversationMessage> {
         let conversation: Conversation = self.store.get("conversation", conversation_id)?;
-        if matches!(
-            conversation.status.as_str(),
-            "closed" | "declined" | "opted_out"
-        ) {
-            bail!("conversation is not open");
+        if conversation.status.ended() {
+            bail!("conversation is not open: its status is {}", conversation.status.word());
         }
         self.add_conversation_message(
             conversation_id,
@@ -203,8 +197,8 @@ impl<'a> StandaloneService<'a> {
         if let Some(assignment_id) = &conversation.assignment_id {
             return self.store.get("assignment", assignment_id);
         }
-        if conversation.status == "opted_out" || conversation.status == "declined" {
-            bail!("creator declined this conversation");
+        if conversation.status.ended() {
+            bail!("creator ended this conversation: its status is {}", conversation.status.word());
         }
         let campaign_id = conversation
             .campaign_id
@@ -239,7 +233,7 @@ impl<'a> StandaloneService<'a> {
         )?;
         let assignment = service.assignment_status(&assignment.id, "accepted")?;
         conversation.assignment_id = Some(assignment.id.clone());
-        conversation.status = "accepted".into();
+        conversation.status = ConversationStatus::Accepted;
         conversation.stage = "contracted".into();
         conversation.updated_at = Store::now();
         self.save_conversation(&conversation)?;
@@ -273,7 +267,7 @@ impl<'a> StandaloneService<'a> {
             id: Store::id(),
             creator_id: creator_id.into(),
             token_hash: token_hash.clone(),
-            status: "active".into(),
+            status: PortalAccessStatus::Active,
             expires_at,
             created_at: now.clone(),
             last_used_at: None,
@@ -283,7 +277,7 @@ impl<'a> StandaloneService<'a> {
             &access.id,
             Some(creator_id),
             None,
-            &access.status,
+            access.status.word(),
             Some(&token_hash),
             &access,
             &now,
