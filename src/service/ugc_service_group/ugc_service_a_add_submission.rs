@@ -75,7 +75,7 @@ impl<'a> UgcService<'a> {
         feedback: Option<String>,
     ) -> Result<Submission> {
         let mut submission: Submission = self.store.get("submission", id)?;
-        if status == "approved" && !matches!(submission.qc_status.as_deref(), Some("PASS" | "WARN"))
+        if status == "approved" && !submission.qc_status.is_some_and(QcStatus::approvable)
         {
             bail!("submission cannot be approved before technical QC passes");
         }

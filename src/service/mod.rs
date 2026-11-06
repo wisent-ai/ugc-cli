@@ -6,7 +6,8 @@ use crate::{
     db::Store,
     model::{
         Asset, Assignment, Brief, Campaign, Connection, Creator, CreatorIdentity, Message, Payment,
-        ProviderCapabilities, Publication, Shipment, ShippingAddress, Submission, UsageRights,
+        ProviderCapabilities, Publication, QcStatus, Shipment, ShippingAddress, Submission,
+        UsageRights,
     },
 };
 

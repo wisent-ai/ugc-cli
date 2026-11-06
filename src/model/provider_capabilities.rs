@@ -230,7 +230,7 @@ pub struct Submission {
     pub revision: i64,
     pub status: String,
     pub feedback: Option<String>,
-    pub qc_status: Option<String>,
+    pub qc_status: Option<QcStatus>,
     pub qc_report: Option<Value>,
     pub submitted_at: String,
     pub reviewed_at: Option<String>,

@@ -3,7 +3,7 @@ use super::*;
 pub(crate) fn check(name: &str, passed: bool, passed_message: &str, failed_message: &str) -> QcCheck {
     QcCheck {
         name: name.into(),
-        status: if passed { "PASS".into() } else { "FAIL".into() },
+        status: if passed { QcStatus::Pass } else { QcStatus::Fail },
         message: if passed {
             passed_message.into()
         } else {
@@ -15,7 +15,7 @@ pub(crate) fn check(name: &str, passed: bool, passed_message: &str, failed_messa
 pub(crate) fn warning(name: &str, message: &str) -> QcCheck {
     QcCheck {
         name: name.into(),
-        status: "WARN".into(),
+        status: QcStatus::Warn,
         message: message.into(),
     }
 }

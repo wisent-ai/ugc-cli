@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     db::Store,
-    model::{Asset, QcCheck, QcReport, Submission},
+    model::{Asset, QcCheck, QcReport, QcStatus, Submission},
 };
 
 mod qc_policy;

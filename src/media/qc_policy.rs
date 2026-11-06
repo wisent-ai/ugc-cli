@@ -183,17 +183,12 @@ pub fn run_qc(store: &Store, asset_id: &str, policy: &QcPolicy, actor: &str) -> 
         }
     }
 
-    let status = if checks.iter().any(|item| item.status == "FAIL") {
-        "FAIL"
-    } else if checks.iter().any(|item| item.status == "WARN") {
-        "WARN"
-    } else {
-        "PASS"
-    };
-    let report = QcReport {
-        status: status.into(),
-        checks,
-    };
+    let status = checks
+        .iter()
+        .map(|item| item.status)
+        .max()
+        .unwrap_or(QcStatus::Pass);
+    let report = QcReport { status, checks };
     store.audit(
         "asset",
         asset_id,
@@ -204,7 +199,7 @@ pub fn run_qc(store: &Store, asset_id: &str, policy: &QcPolicy, actor: &str) -> 
 
     if let Some(submission_id) = &asset.submission_id {
         let mut submission: Submission = store.get("submission", submission_id)?;
-        submission.qc_status = Some(report.status.clone());
+        submission.qc_status = Some(report.status);
         submission.qc_report = Some(serde_json::to_value(&report)?);
         if matches!(
             submission.status.as_str(),

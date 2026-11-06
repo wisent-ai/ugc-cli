@@ -16,16 +16,36 @@ pub struct Publication {
     pub updated_at: String,
 }
 
+/// The verdict of technical QC, of one check and of the whole report: the
+/// report carries the worst verdict any of its checks reached, so the order
+/// of the cases (pass, then warn, then fail) is the order of severity. A
+/// stored report naming another verdict is refused when it is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum QcStatus {
+    Pass,
+    Warn,
+    Fail,
+}
+
+impl QcStatus {
+    /// Whether a submission carrying this verdict may be approved: a warning
+    /// is reviewed by a person, a failure is not.
+    pub fn approvable(self) -> bool {
+        self != Self::Fail
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QcReport {
-    pub status: String,
+    pub status: QcStatus,
     pub checks: Vec<QcCheck>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QcCheck {
     pub name: String,
-    pub status: String,
+    pub status: QcStatus,
     pub message: String,
 }
 
