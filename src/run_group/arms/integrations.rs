@@ -133,8 +133,12 @@ pub(crate) fn run_router(command: BramaCommand, scope: RunScope<'_>) -> Result<(
     let RunScope { store, service, standalone, asset_dir, actor } = scope;
     match command {
         BramaCommand::Health { base_url } => {
-            let base_url = option_or_env(base_url, "BRAMA_URL")?;
-            output(&ecosystem::brama_health(&base_url)?)?;
+            // A health read signs nothing.
+            let service = ecosystem::ModelService::resolve(
+                base_url.or_else(|| std::env::var("BRAMA_URL").ok()),
+                None,
+            )?;
+            output(&ecosystem::model_health(&service)?)?;
         }
         BramaCommand::Analyze {
             kind,
@@ -145,15 +149,18 @@ pub(crate) fn run_router(command: BramaCommand, scope: RunScope<'_>) -> Result<(
             model,
             instruction,
         } => {
-            let base_url = option_or_env(base_url, "BRAMA_URL")?;
-            let agent_id = option_or_env(agent_id, "UGC_BRAMA_AGENT_ID")?;
-            let signing_secret_source =
-                option_or_env(signing_secret_source, "UGC_BRAMA_SIGNING_SECRET_SOURCE")?;
+            let service = ecosystem::ModelService::resolve(
+                base_url.or_else(|| std::env::var("BRAMA_URL").ok()),
+                Some((
+                    Box::new(|| option_or_env(agent_id, "UGC_BRAMA_AGENT_ID")),
+                    Box::new(|| {
+                        option_or_env(signing_secret_source, "UGC_BRAMA_SIGNING_SECRET_SOURCE")
+                    }),
+                )),
+            )?;
             let subject: Value = store.get(&kind, &id)?;
-            output(&ecosystem::brama_analyze(
-                &base_url,
-                &agent_id,
-                &signing_secret_source,
+            output(&ecosystem::model_analyze(
+                &service,
                 &model,
                 &kind,
                 &subject,
