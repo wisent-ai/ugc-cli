@@ -202,7 +202,7 @@ impl<'a> UgcService<'a> {
             raw_footage_required,
             revision_limit,
             rights_requirements,
-            status: "draft".into(),
+            status: BriefStatus::Draft,
             approved_at: None,
             created_at: now,
         };
@@ -211,7 +211,7 @@ impl<'a> UgcService<'a> {
             &brief.id,
             Some(&campaign_id),
             None,
-            &brief.status,
+            brief.status.word(),
             Some(&format!("{campaign_id}:{version}")),
             &brief,
             &brief.created_at,
@@ -226,15 +226,14 @@ impl<'a> UgcService<'a> {
     }
     pub fn approve_brief(&self, id: &str) -> Result<Brief> {
         let mut brief: Brief = self.store.get("brief", id)?;
-        ensure_transition("brief", &brief.status, "approved")?;
-        brief.status = "approved".into();
+        brief.status = brief.status.to(BriefStatus::Approved)?;
         brief.approved_at = Some(Store::now());
         self.store.put(
             "brief",
             &brief.id,
             Some(&brief.campaign_id),
             None,
-            &brief.status,
+            brief.status.word(),
             Some(&format!("{}:{}", brief.campaign_id, brief.version)),
             &brief,
             &brief.created_at,

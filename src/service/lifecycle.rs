@@ -45,17 +45,13 @@ impl<'a> UgcService<'a> {
     }
     pub fn archive_brief(&self, id: &str) -> Result<Brief> {
         let mut brief: Brief = self.store.get("brief", id)?;
-        if brief.status == "archived" {
-            bail!("brief {id} is already archived");
-        }
-        ensure_transition("brief", &brief.status, "archived")?;
-        brief.status = "archived".into();
+        brief.status = brief.status.to(BriefStatus::Archived)?;
         self.store.put(
             "brief",
             &brief.id,
             Some(&brief.campaign_id),
             None,
-            &brief.status,
+            brief.status.word(),
             Some(&format!("{}:{}", brief.campaign_id, brief.version)),
             &brief,
             &brief.created_at,

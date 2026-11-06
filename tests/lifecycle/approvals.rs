@@ -169,10 +169,33 @@ fn operator_approvals_persist_and_refuse_invalid_transitions() -> Result<()> {
             journey.cli(&["brief", "show", &brief_id])? == approved,
             "CLI did not read the HTTP-approved brief"
         );
-        journey.post(&http, &origin, token.trim(), &approve, &json!({}), false)?;
+        let repeated = journey.post(&http, &origin, token.trim(), &approve, &json!({}), false)?;
+        ensure!(
+            repeated["error"] == "brief is already approved",
+            "repeated approval was not refused by its cause: {repeated}"
+        );
         ensure!(
             journey.cli(&["brief", "show", &brief_id])? == approved,
             "repeated approval mutated the brief"
+        );
+        let archived = journey.post(
+            &http,
+            &origin,
+            token.trim(),
+            &format!("/api/briefs/{brief_id}/archive"),
+            &json!({}),
+            true,
+        )?;
+        ensure!(archived["status"] == "archived", "archive did not retain archived state");
+        let reapproved = journey.post(&http, &origin, token.trim(), &approve, &json!({}), false)?;
+        ensure!(
+            reapproved["error"]
+                == "invalid brief transition: archived -> approved; a draft is approved or archived, an approved brief is archived",
+            "approving an archived brief was not refused by its cause: {reapproved}"
+        );
+        ensure!(
+            journey.cli(&["brief", "show", &brief_id])? == archived,
+            "approving an archived brief changed it"
         );
         let verify = format!("/api/creators/{creator_id}/verify");
         journey.post(&http, &origin, token.trim(), &verify, &json!([]), false)?;

@@ -10,7 +10,7 @@ impl<'a> UgcService<'a> {
         let campaign: Campaign = self.store.get("campaign", &campaign_id)?;
         let brief: Brief = self.store.get("brief", &brief_id)?;
         let _: Connection = self.store.get("connection", &connection_id)?;
-        if brief.campaign_id != campaign_id || brief.status != "approved" {
+        if brief.campaign_id != campaign_id || brief.status != BriefStatus::Approved {
             bail!("publication requires an approved brief belonging to the campaign");
         }
         if matches!(campaign.status.as_str(), "cancelled" | "completed") {
@@ -84,10 +84,6 @@ pub fn ensure_transition(kind: &str, from: &str, to: &str) -> Result<()> {
                 | ("active", "completed")
                 | (_, "cancelled")
                 | (_, "failed")
-        ),
-        "brief" => matches!(
-            (from, to),
-            ("draft", "approved") | ("draft", "archived") | ("approved", "archived")
         ),
         "assignment" => matches!(
             (from, to),

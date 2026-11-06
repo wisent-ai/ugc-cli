@@ -21,7 +21,7 @@ impl<'a> StandaloneService<'a> {
             if campaign_id.as_deref() != Some(&brief_record.campaign_id) {
                 bail!("brief does not belong to conversation campaign");
             }
-            if brief_record.status != "approved" {
+            if brief_record.status != BriefStatus::Approved {
                 bail!("conversation brief must be approved");
             }
         }

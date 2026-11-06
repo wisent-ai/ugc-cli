@@ -21,7 +21,7 @@ impl<'a> UgcService<'a> {
         if brief.campaign_id != campaign_id {
             bail!("brief does not belong to campaign");
         }
-        if brief.status != "approved" {
+        if brief.status != BriefStatus::Approved {
             bail!("brief must be approved before assignment");
         }
         let _: Creator = self.store.get("creator", &creator_id)?;

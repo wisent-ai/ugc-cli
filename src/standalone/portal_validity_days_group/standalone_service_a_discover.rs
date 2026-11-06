@@ -181,7 +181,7 @@ impl<'a> StandaloneService<'a> {
                 bail!("campaign deadline has passed");
             }
         }
-        if brief.campaign_id != campaign.id || brief.status != "approved" {
+        if brief.campaign_id != campaign.id || brief.status != BriefStatus::Approved {
             bail!("launch requires an approved brief belonging to the campaign");
         }
         query.campaign_id = Some(campaign.id.clone());

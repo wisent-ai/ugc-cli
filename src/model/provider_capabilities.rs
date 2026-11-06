@@ -84,6 +84,45 @@ pub struct Campaign {
     pub updated_at: String,
 }
 
+/// Where a brief stands: a draft until it is approved, and archived from
+/// either. A stored brief naming another word is refused where it is read,
+/// and [`BriefStatus::to`] is the one place a move between them is decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BriefStatus {
+    Draft,
+    Approved,
+    Archived,
+}
+
+impl BriefStatus {
+    /// The status as the store writes it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Approved => "approved",
+            Self::Archived => "archived",
+        }
+    }
+
+    /// The status a brief moves to from this one, or why it cannot: a draft
+    /// is approved or archived, an approved brief is archived, and an
+    /// archived brief moves nowhere. A brief already at the status it is
+    /// asked to take is refused, so a repeated approval changes nothing and
+    /// says so.
+    pub fn to(self, next: Self) -> anyhow::Result<Self> {
+        match (self, next) {
+            (Self::Draft, Self::Approved | Self::Archived) | (Self::Approved, Self::Archived) => Ok(next),
+            (from, to) if from == to => anyhow::bail!("brief is already {}", to.word()),
+            (from, to) => anyhow::bail!(
+                "invalid brief transition: {} -> {}; a draft is approved or archived, an approved brief is archived",
+                from.word(),
+                to.word()
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Brief {
     pub id: String,
@@ -102,7 +141,7 @@ pub struct Brief {
     pub raw_footage_required: bool,
     pub revision_limit: Option<i64>,
     pub rights_requirements: Value,
-    pub status: String,
+    pub status: BriefStatus,
     pub approved_at: Option<String>,
     pub created_at: String,
 }

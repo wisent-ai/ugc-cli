@@ -161,7 +161,12 @@ missing key is refused by the argument parser; none is generated.
 
 The authenticated operator screen's **Approve brief** control calls
 `POST /api/briefs/{id}/approve`, using the same transition as
-`ugc-cli brief approve ID`. An already approved or archived brief is refused.
+`ugc-cli brief approve ID`. A brief moves draft → approved, draft → archived
+or approved → archived, and nowhere else. An already approved brief is refused
+with `brief is already approved`; an archived one with `invalid brief
+transition: archived -> approved; a draft is approved or archived, an approved
+brief is archived`. A stored brief whose status is none of draft, approved and
+archived is refused where it is read.
 **Record creator verification** posts the explicitly entered JSON object to
 `POST /api/creators/{id}/verify`, using `ugc-cli creator verify ID --metadata JSON`'s
 service operation. Invalid JSON or a non-object is refused. This records the
@@ -175,7 +180,8 @@ state.
 
 `tests/lifecycle/approvals.rs` creates its own campaign, brief and creator
 through the actual CLI, verifies authenticated HTTP mutations through CLI
-readback, checks unauthorized approval, repeated approval and non-object
+readback, checks unauthorized approval, repeated approval, approval of an
+archived brief and non-object
 verification refusals, and independently removes its owned rows.
 Use the same isolated fleet database as the operator server. In addition to
 `UGC_TEST_DATABASE_NAME` and `UGC_TEST_SOURCE_REVISION`, declare

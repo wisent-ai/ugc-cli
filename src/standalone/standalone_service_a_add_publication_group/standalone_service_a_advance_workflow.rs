@@ -17,7 +17,7 @@ impl<'a> StandaloneService<'a> {
         let publications: Vec<StandalonePublication> =
             self.store
                 .list("standalone_publication", Some(campaign_id), None)?;
-        let approved_brief = briefs.iter().any(|brief| brief.status == "approved");
+        let approved_brief = briefs.iter().any(|brief| brief.status == BriefStatus::Approved);
         let mut actions = Vec::new();
         let mut blockers = Vec::new();
 
